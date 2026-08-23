@@ -165,6 +165,7 @@ def main():
                     logger.info("发现新数据版本 %s，来源：%s", data_update_target_version, data_update_url)
                     logger.info("开始下载数据")
                     download_file(node_url(data_update_url, "/download"), "data/data.zip")
+                    logger.info("数据下载完成，当前版本：%s", version_query.get_version())
                     data_update_flag = False
                     data_update_target_version = -1
                     data_update_url = ""
