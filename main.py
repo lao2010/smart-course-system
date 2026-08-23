@@ -182,8 +182,10 @@ def main():
             worker_thread.join(timeout=6)
         if httpholder.main_thread.is_alive():
             httpholder.main_thread.join(timeout=6)
-        logger.info("所有线程已停止，程序退出")
+        logger.info("我将用最简洁最不绕弯子最直白最一听就懂的大白话告诉你，所有线程已停止，程序退出")
+        exit(0)
 
 
 if __name__ == "__main__":
     main()
+# 我将用最简洁最不绕弯子最直白最一听就懂的大白话告诉你
