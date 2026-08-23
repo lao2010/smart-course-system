@@ -32,7 +32,7 @@ thread_sleep_flag = False
 
 
 def node_url(node: str, path: str) -> str:
-    """Build an HTTP endpoint from a discovered node address."""
+    """根据发现的节点地址构造 HTTP 接口地址。"""
     base_url = node if node.startswith(("http://", "https://")) else f"http://{node}"
     return urljoin(f"{base_url.rstrip('/')}/", path.lstrip('/'))
 
@@ -81,7 +81,7 @@ def auth_headers():
 
 
 def download_file(url: str, save_path: str) -> None:
-    """下载文件"""
+    """下载并校验数据压缩包，然后以原子方式替换本地文件。"""
     temporary_path = f"{save_path}.tmp"
     try:
         directory = os.path.dirname(save_path)
@@ -140,7 +140,7 @@ def main():
         time.sleep(1)
         node_list = [a_node for a_node in Discovery.get_usable_list()]
         logger.info("发现节点：%s", node_list)
-        thread_sleep_flag = False # 使线程退出休息
+        thread_sleep_flag = False  # 唤醒工作线程处理任务
         logger.info("开始向工作线程分配任务")
         for i, node in enumerate(node_list):
             thread_work_list[i % thread_num].append(node)
@@ -149,7 +149,7 @@ def main():
         while [len(l) for l in thread_work_list] != [0 for _ in range(thread_num)]:
             time.sleep(0.5)
         logger.info("所有线程已完成任务")
-        thread_sleep_flag = True # 使线程休息
+        thread_sleep_flag = True  # 让工作线程进入等待状态
         if data_update_flag:
             with data_update_lock:
                 logger.info("发现新数据版本 %s，来源：%s", data_update_target_version, data_update_url)
