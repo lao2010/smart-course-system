@@ -57,6 +57,7 @@ def thread_work(num):
             try:
                 response = requests.get(node_url(task, "/query"), headers=auth_headers(), timeout=5)
                 if response.status_code == 500:
+                    logger.warning(f"节点{task} 负载过高，跳过。")
                     continue
                 elif response.status_code == 200:
                     logger.info("工作线程 %s 从 %s 收到数据版本 %s", num, task, response.text)
