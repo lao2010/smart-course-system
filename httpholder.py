@@ -7,12 +7,14 @@ import version_query
 import random
 import os
 import threading
+import logging
 from friend_finder import verify_token
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+logger = logging.getLogger(__name__)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -35,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
 
 	def do_GET(self):
 		if not self.server.request_slots.acquire(blocking=False):
-			self._send(500, "Server overloaded")
+			self._send(500, "服务器繁忙")
 			return
 		try:
 			self._do_get()
@@ -45,13 +47,13 @@ class Handler(BaseHTTPRequestHandler):
 	def _do_get(self):
 		"""响应拉取课程表数据行为"""
 		if not self._authorized():
-			self._send(401, "Unauthorized")
+			self._send(401, "未授权")
 			return
 		request = urlparse(self.path)
 		if request.path == "/download":
 			path = os.path.join(ROOT, "data", "data.zip")
 			if not os.path.isfile(path):
-				self._send(404, "data/data.zip not found")
+				self._send(404, "未找到 data/data.zip")
 				return
 			with open(path, "rb") as stream:
 				body = stream.read()
@@ -66,7 +68,7 @@ class Handler(BaseHTTPRequestHandler):
 		if request.path == "/query":
 			main_path = os.path.join(ROOT, "main.py")
 			if not os.path.isfile(main_path):
-				self._send(404, "main.py not found")
+				self._send(404, "未找到 main.py")
 				return
 			try:
 				result = version_query.get_version()
@@ -77,10 +79,10 @@ class Handler(BaseHTTPRequestHandler):
 				self._send(500, str(exc))
 			return
 
-		self._send(404, "Not found")
+		self._send(404, "未找到请求的资源")
 
 	def log_message(self, format, *args):
-		print("%s - - [%s] %s" % (self.address_string(), self.log_date_time_string(), format % args))
+		logger.info("HTTP %s - %s", self.address_string(), format % args)
 
 
 class LoadSheddingHTTPServer(ThreadingHTTPServer):
@@ -91,7 +93,12 @@ port = 0
 ready_event = threading.Event()
 def main():
 	global port
-	print("Hello from http-model of smart-cr!")
+	logging.basicConfig(
+		level=logging.INFO,
+		format="%(asctime)s | %(levelname)-8s | %(threadName)s | %(name)s | %(message)s",
+		datefmt="%Y-%m-%d %H:%M:%S",
+	)
+	logger.info("HTTP 服务启动")
 	import argparse
 
 	parser = argparse.ArgumentParser()
@@ -106,9 +113,9 @@ def main():
 	except OSError as exc:
 		if exc.errno not in (98, 10013, 10048):
 			raise
-		print(f"Port {options.port} is unavailable; selecting an available port.")
+		logger.warning("端口 %s 不可用，将自动选择可用端口", options.port)
 		server = LoadSheddingHTTPServer((options.host, 0), Handler, options.max_concurrent)
-	print(f"Serving on http://{options.host}:{server.server_port}")
+	logger.info("HTTP 服务监听地址：http://%s:%s", options.host, server.server_port)
 	port = server.server_port
 	ready_event.set()
 

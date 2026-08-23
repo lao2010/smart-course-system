@@ -88,7 +88,7 @@ class FriendFinder:
                 
                 # 2. 验证签名和时间戳
                 if not verify_token(info.get("timestamp", 0), info.get("token", "")):
-                    print(f"[安全警告] 丢弃来自 {addr} 的伪造包！")
+                    logger.warning("丢弃来自 %s 的伪造数据包", addr)
                     continue
 
                 if info.get("ip") == self._get_local_ip() and info.get("app_port") == self.app_port:
@@ -103,16 +103,16 @@ class FriendFinder:
                         "app_port": info.get("app_port", -1),
                         "last_seen": time.time()
                     }
-                    print(f"[发现节点] {info['hostname']} ({info['ip']}:{info.get('app_port', -1)})")
+                    logger.info("发现节点：%s (%s:%s)", info["hostname"], info["ip"], info.get("app_port", -1))
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError) as error:
-                logger.warning("Discarded invalid discovery packet from %s: %s", addr, error)
+                logger.warning("丢弃来自 %s 的无效节点发现数据包：%s", addr, error)
             except socket.timeout:
                 continue
             except OSError as error:
                 if self.running:
-                    logger.warning("Discovery socket error from %s: %s", addr, error)
+                    logger.warning("来自 %s 的节点发现套接字错误：%s", addr, error)
             except Exception:
-                logger.exception("Unexpected discovery error from %s", addr)
+                logger.exception("处理来自 %s 的节点发现数据包时发生未预期错误", addr)
                 continue
 
     def start(self):
