@@ -24,6 +24,8 @@ logging.basicConfig(
 
 thread_num = 4
 thread_work_list = [[] for i in range(thread_num)]
+worker_threads = []
+stop_event = threading.Event()
 data_update_target_version = -1
 data_update_url = ""
 data_update_flag = False
@@ -43,10 +45,12 @@ def thread_work(num):
     global data_update_flag
     logger.info("工作线程 %s 已启动", num)
     temp_for_thread_init = False
-    while True:
-        while thread_sleep_flag:
+    while not stop_event.is_set():
+        while thread_sleep_flag and not stop_event.is_set():
             logger.debug("工作线程 %s 正在等待任务", num)
-            time.sleep(0.5)
+            stop_event.wait(0.5)
+        if stop_event.is_set():
+            break
         if thread_work_list[num]:
             task = thread_work_list[num].pop(0)
             logger.info("工作线程 %s 正在查询节点 %s", num, task)
@@ -123,41 +127,60 @@ def main():
     global data_update_target_version
     global data_update_url
     logger.info("智能课程表同步程序启动")
-    httpholder.main_thread.start()
-    if not httpholder.ready_event.wait(timeout=10):
-        raise RuntimeError("HTTP server did not become ready in time")
-    port = httpholder.port
-    Discovery = friend_finder.FriendFinder(app_name="smart-cr", app_port=port)
-    Discovery.start()
-    thread_sleep_flag = True
-    for i in range(thread_num):
-        t = threading.Thread(target=thread_work, args=(i,), daemon=True)
-        t.start()
-        temp_for_thread_init = True
-        while temp_for_thread_init:
-            time.sleep(0.1)
-    while True:
-        time.sleep(1)
-        node_list = [a_node for a_node in Discovery.get_usable_list()]
-        logger.info("发现节点：%s", node_list)
-        thread_sleep_flag = False  # 唤醒工作线程处理任务
-        logger.info("开始向工作线程分配任务")
-        for i, node in enumerate(node_list):
-            thread_work_list[i % thread_num].append(node)
-        node_list.clear()
-        logger.info("所有任务已分配，等待线程完成")
-        while [len(l) for l in thread_work_list] != [0 for _ in range(thread_num)]:
-            time.sleep(0.5)
-        logger.info("所有线程已完成任务")
-        thread_sleep_flag = True  # 让工作线程进入等待状态
-        if data_update_flag:
-            with data_update_lock:
-                logger.info("发现新数据版本 %s，来源：%s", data_update_target_version, data_update_url)
-                logger.info("开始下载数据")
-                download_file(node_url(data_update_url, "/download"), "data/data.zip")
-                data_update_flag = False
-                data_update_target_version = -1
-                data_update_url = ""
+    discovery = None
+    try:
+        httpholder.main_thread.start()
+        if not httpholder.ready_event.wait(timeout=10):
+            raise RuntimeError("HTTP 服务未能在规定时间内启动")
+        port = httpholder.port
+        discovery = friend_finder.FriendFinder(app_name="smart-cr", app_port=port)
+        discovery.start()
+        thread_sleep_flag = True
+        for i in range(thread_num):
+            t = threading.Thread(target=thread_work, args=(i,), daemon=True, name=f"工作线程-{i}")
+            worker_threads.append(t)
+            t.start()
+            temp_for_thread_init = True
+            while temp_for_thread_init and not stop_event.is_set():
+                stop_event.wait(0.1)
+        while not stop_event.is_set():
+            stop_event.wait(1)
+            if stop_event.is_set():
+                break
+            node_list = [a_node for a_node in discovery.get_usable_list()]
+            logger.info("发现节点：%s", node_list)
+            thread_sleep_flag = False  # 唤醒工作线程处理任务
+            logger.info("开始向工作线程分配任务")
+            for i, node in enumerate(node_list):
+                thread_work_list[i % thread_num].append(node)
+            node_list.clear()
+            logger.info("所有任务已分配，等待线程完成")
+            while [len(l) for l in thread_work_list] != [0 for _ in range(thread_num)]:
+                if stop_event.wait(0.5):
+                    break
+            logger.info("所有线程已完成任务")
+            thread_sleep_flag = True  # 让工作线程进入等待状态
+            if data_update_flag and not stop_event.is_set():
+                with data_update_lock:
+                    logger.info("发现新数据版本 %s，来源：%s", data_update_target_version, data_update_url)
+                    logger.info("开始下载数据")
+                    download_file(node_url(data_update_url, "/download"), "data/data.zip")
+                    data_update_flag = False
+                    data_update_target_version = -1
+                    data_update_url = ""
+    except KeyboardInterrupt:
+        logger.info("收到 Ctrl+C，开始停止所有线程")
+    finally:
+        stop_event.set()
+        thread_sleep_flag = False
+        if discovery is not None:
+            discovery.stop()
+        httpholder.stop()
+        for worker_thread in worker_threads:
+            worker_thread.join(timeout=6)
+        if httpholder.main_thread.is_alive():
+            httpholder.main_thread.join(timeout=6)
+        logger.info("所有线程已停止，程序退出")
 
 
 if __name__ == "__main__":

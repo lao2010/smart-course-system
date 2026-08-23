@@ -91,8 +91,9 @@ class LoadSheddingHTTPServer(ThreadingHTTPServer):
 		self.request_slots = threading.BoundedSemaphore(max_concurrent)
 port = 0
 ready_event = threading.Event()
+server_instance = None
 def main():
-	global port
+	global port, server_instance
 	logging.basicConfig(
 		level=logging.INFO,
 		format="%(asctime)s | %(levelname)-8s | %(threadName)s | %(name)s | %(message)s",
@@ -115,6 +116,7 @@ def main():
 			raise
 		logger.warning("端口 %s 不可用，将自动选择可用端口", options.port)
 		server = LoadSheddingHTTPServer((options.host, 0), Handler, options.max_concurrent)
+	server_instance = server
 	logger.info("HTTP 服务监听地址：http://%s:%s", options.host, server.server_port)
 	port = server.server_port
 	ready_event.set()
@@ -125,6 +127,13 @@ def main():
 		pass
 	finally:
 		server.server_close()
+		server_instance = None
+
+
+def stop():
+	"""停止 HTTP 服务线程。"""
+	if server_instance is not None:
+		server_instance.shutdown()
 
 import threading
 main_thread = threading.Thread(target=main)

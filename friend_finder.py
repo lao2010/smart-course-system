@@ -36,6 +36,8 @@ class FriendFinder:
         self.peers = {}
         self.lock = threading.Lock()
         self.running = False
+        self.stop_event = threading.Event()
+        self.worker_threads = []
         # 接收套接字绑定固定端口，并允许接收广播数据。
         self.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -61,7 +63,7 @@ class FriendFinder:
                 "token": generate_token(curr_time)
             }).encode("utf-8")
             self.send_sock.sendto(data, ("255.255.255.255", self.port))
-            time.sleep(self.interval)
+            self.stop_event.wait(self.interval)
 
     def _get_local_ip(self):
         try:
@@ -117,8 +119,22 @@ class FriendFinder:
     def start(self):
         """启动广播和监听线程"""
         self.running = True
-        threading.Thread(target=self._broadcast_presence, daemon=True).start()
-        threading.Thread(target=self._listen, daemon=True).start()
+        self.stop_event.clear()
+        self.worker_threads = [
+            threading.Thread(target=self._broadcast_presence, daemon=True, name="节点广播线程"),
+            threading.Thread(target=self._listen, daemon=True, name="节点监听线程"),
+        ]
+        for worker_thread in self.worker_threads:
+            worker_thread.start()
+
+    def stop(self):
+        """停止节点广播和监听线程，并释放网络资源。"""
+        self.running = False
+        self.stop_event.set()
+        self.recv_sock.close()
+        self.send_sock.close()
+        for worker_thread in self.worker_threads:
+            worker_thread.join(timeout=3)
 
     def get_usable_list(self):
         """返回最近活跃的节点列表"""

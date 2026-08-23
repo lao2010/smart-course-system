@@ -9,10 +9,12 @@ def show_reminder(
 	message: str,
 	delay_seconds: float = 0,
 	show_at: Optional[datetime] = None,
+	on_confirm: Optional[Callable[[], None]] = None,
+	on_details: Optional[Callable[[], None]] = None,
 	on_close: Optional[Callable[[], None]] = None,
 	auto_close_seconds: Optional[float] = None,
 ) -> None:
-	"""在指定时间显示全屏提醒，并支持关闭回调和自动关闭。"""
+	"""显示全屏提醒，提供确定按钮和可选的详情按钮。"""
 	if not message:
 		raise ValueError("提醒内容不能为空")
 	if delay_seconds < 0:
@@ -39,6 +41,18 @@ def show_reminder(
 		if on_close is not None:
 			on_close()
 
+	def confirm_reminder() -> None:
+		close_reminder()
+		if on_confirm is not None:
+			on_confirm()
+
+	def show_details() -> None:
+		try:
+			if on_details is not None:
+				on_details()
+		finally:
+			close_reminder()
+
 	def display_reminder() -> None:
 		nonlocal close_after_id
 		root.deiconify()
@@ -63,16 +77,30 @@ def show_reminder(
 		)
 		label.pack(expand=True)
 
-		close_button = tk.Button(
-			frame,
-			text="关闭提醒",
-			command=close_reminder,
+		button_frame = tk.Frame(frame, background="#101820")
+		button_frame.pack(pady=(0, 24))
+
+		confirm_button = tk.Button(
+			button_frame,
+			text="确定",
+			command=confirm_reminder,
 			font=("Microsoft YaHei UI", 16),
 			padx=24,
 			pady=10,
 		)
-		close_button.pack(pady=(0, 24))
-		close_button.focus_set()
+		confirm_button.pack(side="left", padx=8)
+		confirm_button.focus_set()
+
+		if on_details is not None:
+			details_button = tk.Button(
+				button_frame,
+				text="查看详情",
+				command=show_details,
+				font=("Microsoft YaHei UI", 16),
+				padx=24,
+				pady=10,
+			)
+			details_button.pack(side="left", padx=8)
 
 	root.bind("<Escape>", lambda _event: close_reminder())
 	root.protocol("WM_DELETE_WINDOW", close_reminder)
@@ -85,5 +113,7 @@ if __name__ == "__main__":
 		"请查看今日课程安排。",
 		delay_seconds=5,
 		auto_close_seconds=10,
+		on_confirm=lambda: print("已确认提醒"),
+		on_details=lambda: print("正在查看详情"),
 		on_close=lambda: print("提醒已关闭"),
 	)
