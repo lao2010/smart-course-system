@@ -155,6 +155,8 @@ class TimetableEditor(tk.Toplevel):
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=16, pady=12)
         ttk.Label(toolbar, text=f"班级：{self.prefix}", font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
+        ttk.Button(toolbar, text="增加节次", command=self.add_period).pack(side="left", padx=(24, 0))
+        ttk.Button(toolbar, text="删除末节", command=self.remove_period).pack(side="left", padx=8)
         ttk.Button(toolbar, text="保存", command=self.save).pack(side="right")
         ttk.Button(toolbar, text="打开", command=self.open_manager).pack(side="right", padx=8)
         ttk.Button(toolbar, text="编辑课程", command=self.edit_courses).pack(side="right", padx=8)
@@ -169,6 +171,7 @@ class TimetableEditor(tk.Toplevel):
         return [index for index, variable in enumerate(self.day_vars) if variable.get()]
 
     def render(self):
+        self.sync_widgets()
         for widget in self.grid_frame.winfo_children():
             widget.destroy()
         days = self.selected_days()
@@ -178,12 +181,12 @@ class TimetableEditor(tk.Toplevel):
         for row_index, row in enumerate(self.rows, 1):
             time_frame = ttk.Frame(self.grid_frame)
             time_frame.grid(row=row_index, column=0, sticky="nsew", padx=3, pady=3)
-            row["start"].grid_in = ttk.Entry(time_frame, width=8)
-            row["end"].grid_in = ttk.Entry(time_frame, width=8)
-            row["start"].grid_in.insert(0, row["start"].value)
-            row["end"].grid_in.insert(0, row["end"].value)
-            row["start"].grid_in.pack()
-            row["end"].grid_in.pack(pady=(3, 0))
+            row["start_entry"] = ttk.Entry(time_frame, width=8)
+            row["end_entry"] = ttk.Entry(time_frame, width=8)
+            row["start_entry"].insert(0, row["start"].get())
+            row["end_entry"].insert(0, row["end"].get())
+            row["start_entry"].pack()
+            row["end_entry"].pack(pady=(3, 0))
             for column, day in enumerate(days, 1):
                 combo = ttk.Combobox(self.grid_frame, values=self.courses, state="readonly", width=18)
                 combo.set(row["cells"].get(str(day), ""))
@@ -199,16 +202,31 @@ class TimetableEditor(tk.Toplevel):
         self.rows.append({"start": start, "end": end, "cells": data.get("cells", {}), "widgets": {}})
         self.render()
 
-    def collect_rows(self):
-        result = []
+    def sync_widgets(self):
         for row in self.rows:
-            if hasattr(row["start"], "grid_in"):
-                row["start"].set(row["start"].grid_in.get().strip())
-                row["end"].set(row["end"].grid_in.get().strip())
+            if "start_entry" in row:
+                row["start"].set(row["start_entry"].get().strip())
+                row["end"].set(row["end_entry"].get().strip())
             for day, widget in row["widgets"].items():
                 row["cells"][str(day)] = widget.get()
+
+    def collect_rows(self):
+        self.sync_widgets()
+        result = []
+        for row in self.rows:
             result.append({"start": row["start"].get(), "end": row["end"].get(), "cells": row["cells"]})
         return result
+
+    def add_period(self):
+        self.add_row()
+
+    def remove_period(self):
+        if len(self.rows) <= 1:
+            messagebox.showinfo("提示", "课程表至少保留一节课。", parent=self)
+            return
+        self.sync_widgets()
+        self.rows.pop()
+        self.render()
 
     def save(self):
         try:
