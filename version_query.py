@@ -1,18 +1,15 @@
 import json
 import os
 import logging
-from zipfile import ZipFile
-from zipfile import BadZipFile
+from zip_operator import zip_read
 
 archive_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "data.zip")
 logger = logging.getLogger(__name__)
 def get_version():
     try:
-        with ZipFile(archive_path) as archive:
-            with archive.open("data.json") as file:
-                data = json.load(file)
+        data = json.loads(zip_read(archive_path, "data.json"))
         return float(data.get("version", "1.1"))
-    except (FileNotFoundError, BadZipFile, KeyError, json.JSONDecodeError, TypeError, ValueError):
+    except (json.JSONDecodeError, TypeError, ValueError):
         return -1.114514
 
 def main():

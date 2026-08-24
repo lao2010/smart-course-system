@@ -66,9 +66,9 @@ class Handler(BaseHTTPRequestHandler):
 			return
 
 		if request.path == "/query":
-			main_path = os.path.join(ROOT, "main.py")
-			if not os.path.isfile(main_path):
-				self._send(404, "未找到 main.py")
+			version_query_path = os.path.join(ROOT, "version_query.py")
+			if not os.path.isfile(version_query_path):
+				self._send(404, "未找到版本查阅工具")
 				return
 			try:
 				result = version_query.get_version()
