@@ -3,14 +3,17 @@
 import json
 import logging
 import os
+import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from zipfile import ZipFile
+from datetime import datetime
 
 from zip_operator import zip_change_file
 
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ARCHIVE_PATH = os.path.join(ROOT, "data", "data.zip")
 DAY_NAMES = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -18,6 +21,12 @@ DAY_NAMES = ("周一", "周二", "周三", "周四", "周五", "周六", "周日
 
 def class_prefix(grade, class_number):
     return f"g{grade}-c{class_number}"
+
+
+def friendly_class_name(grade, class_number):
+    grade_number = int(grade)
+    grade_name = f"高{grade_number - 9}" if 10 <= grade_number <= 12 else f"{grade_number}"
+    return f"{grade_name}年级{class_number}班"
 
 
 def ensure_archive():
@@ -42,6 +51,10 @@ def available_classes():
     return sorted(prefixes)
 
 
+def class_names():
+    return load_json("classes.json", {})
+
+
 def load_json(path, default):
     with ZipFile(ARCHIVE_PATH) as archive:
         try:
@@ -51,15 +64,27 @@ def load_json(path, default):
             return default
 
 
-def save_class(prefix, timetable, courses):
+def save_class(prefix, timetable, courses=None):
     ensure_archive()
+    archive_info = load_json("data.json", {})
+    if not isinstance(archive_info, dict):
+        archive_info = {}
+    archive_info["version"] = time.time()
     payloads = {
         f"{prefix}/timetable.json": json.dumps(timetable, ensure_ascii=False, indent=2).encode("utf-8"),
-        f"{prefix}/courses.json": json.dumps(courses, ensure_ascii=False, indent=2).encode("utf-8"),
+        "data.json": json.dumps(archive_info, ensure_ascii=False, indent=2).encode("utf-8"),
     }
+    if courses is not None:
+        payloads["courses.json"] = json.dumps(courses, ensure_ascii=False, indent=2).encode("utf-8")
     for path, content in payloads.items():
         if not zip_change_file(ARCHIVE_PATH, path, content):
             raise OSError(f"无法写入 {path}")
+
+
+def save_class_names(names):
+    content = json.dumps(names, ensure_ascii=False, indent=2).encode("utf-8")
+    if not zip_change_file(ARCHIVE_PATH, "classes.json", content):
+        raise OSError("无法写入 classes.json")
 
 
 def delete_class(prefix):
@@ -99,34 +124,56 @@ class ClassManager(tk.Toplevel):
 
     def refresh(self):
         self.listbox.delete(0, tk.END)
+        self.class_items = []
+        names = class_names()
         for prefix in available_classes():
-            self.listbox.insert(tk.END, prefix)
+            self.class_items.append(prefix)
+            self.listbox.insert(tk.END, names.get(prefix, prefix))
 
     def add(self):
         grade = simpledialog.askstring("添加班级", "年级：", parent=self)
         class_number = simpledialog.askstring("添加班级", "班级：", parent=self)
         if not grade or not class_number:
             return
-        prefix = class_prefix(grade.strip(), class_number.strip())
+        try:
+            grade_number = int(grade.strip())
+        except ValueError:
+            messagebox.showerror("提示", "年级必须是 1 到 12 的数字。", parent=self)
+            return
+        if not 1 <= grade_number <= 12 or not class_number.strip():
+            messagebox.showerror("提示", "年级必须是 1 到 12 的数字，班级不能为空。", parent=self)
+            return
+        grade = str(grade_number)
+        class_number = class_number.strip()
+        display_name = friendly_class_name(grade, class_number)
+        prefix = class_prefix(grade, class_number)
         if prefix in available_classes():
             messagebox.showinfo("提示", "该班级已经存在。", parent=self)
             return
-        save_class(prefix, {"days": [0, 1, 2, 3, 4], "rows": []}, [])
+        save_class(prefix, {"days": [0, 1, 2, 3, 4], "rows": []})
+        names = class_names()
+        names[prefix] = display_name.strip()
+        save_class_names(names)
+        logger.info("添加班级: %s", display_name.strip())
         self.refresh()
 
     def remove(self):
         selection = self.listbox.curselection()
         if not selection:
             return
-        prefix = self.listbox.get(selection[0])
+        prefix = self.class_items[selection[0]]
         if messagebox.askyesno("确认删除", f"确定删除 {prefix} 吗？", parent=self):
             delete_class(prefix)
+            names = class_names()
+            names.pop(prefix, None)
+            save_class_names(names)
+            logger.info("删除班级: %s", self.listbox.get(selection[0]))
             self.refresh()
 
     def select(self):
         selection = self.listbox.curselection()
         if selection:
-            self.on_select(self.listbox.get(selection[0]))
+            self.on_select(self.class_items[selection[0]])
 
 
 class TimetableEditor(tk.Toplevel):
@@ -134,13 +181,16 @@ class TimetableEditor(tk.Toplevel):
         super().__init__(manager)
         self.manager = manager
         self.prefix = prefix
-        self.title(f"课程表编辑器 - {prefix}")
+        self.display_name = class_names().get(prefix, prefix)
+        self.title(f"课程表编辑器 - {self.display_name}")
         self.geometry("1050x620")
         self.minsize(760, 480)
+        self.protocol("WM_DELETE_WINDOW", self.open_manager)
         self.rows = []
-        self.courses = load_json(f"{prefix}/courses.json", [])
+        self.courses = load_json("courses.json", [])
         timetable = load_json(f"{prefix}/timetable.json", {"days": [0, 1, 2, 3, 4], "rows": []})
         self.day_vars = [tk.BooleanVar(value=index in timetable.get("days", [])) for index in range(7)]
+        self.saved_state = None
 
         self.make_toolbar()
         self.make_day_selector()
@@ -150,11 +200,13 @@ class TimetableEditor(tk.Toplevel):
             self.add_row(row)
         if not self.rows:
             self.add_row()
+        self.saved_state = self.current_state()
+        self.protocol("WM_DELETE_WINDOW", self.close)
 
     def make_toolbar(self):
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=16, pady=12)
-        ttk.Label(toolbar, text=f"班级：{self.prefix}", font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
+        ttk.Label(toolbar, text=f"班级：{self.display_name}", font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
         ttk.Button(toolbar, text="增加节次", command=self.add_period).pack(side="left", padx=(24, 0))
         ttk.Button(toolbar, text="删除末节", command=self.remove_period).pack(side="left", padx=8)
         ttk.Button(toolbar, text="保存", command=self.save).pack(side="right")
@@ -174,6 +226,8 @@ class TimetableEditor(tk.Toplevel):
         self.sync_widgets()
         for widget in self.grid_frame.winfo_children():
             widget.destroy()
+        for row in self.rows:
+            row["widgets"] = {}
         days = self.selected_days()
         ttk.Label(self.grid_frame, text="时间").grid(row=0, column=0, sticky="nsew", padx=3, pady=3)
         for column, day in enumerate(days, 1):
@@ -181,12 +235,7 @@ class TimetableEditor(tk.Toplevel):
         for row_index, row in enumerate(self.rows, 1):
             time_frame = ttk.Frame(self.grid_frame)
             time_frame.grid(row=row_index, column=0, sticky="nsew", padx=3, pady=3)
-            row["start_entry"] = ttk.Entry(time_frame, width=8)
-            row["end_entry"] = ttk.Entry(time_frame, width=8)
-            row["start_entry"].insert(0, row["start"].get())
-            row["end_entry"].insert(0, row["end"].get())
-            row["start_entry"].pack()
-            row["end_entry"].pack(pady=(3, 0))
+            row["time_entries"] = self.make_time_entries(time_frame, row)
             for column, day in enumerate(days, 1):
                 combo = ttk.Combobox(self.grid_frame, values=self.courses, state="readonly", width=18)
                 combo.set(row["cells"].get(str(day), ""))
@@ -194,6 +243,23 @@ class TimetableEditor(tk.Toplevel):
                 row["widgets"][day] = combo
         for column in range(len(days) + 1):
             self.grid_frame.columnconfigure(column, weight=1)
+
+    def make_time_entries(self, parent, row):
+        start = row["start"].get().split(":", 1)
+        end = row["end"].get().split(":", 1)
+        values = (start[0] if len(start) == 2 else "", start[1] if len(start) == 2 else "",
+                  end[0] if len(end) == 2 else "", end[1] if len(end) == 2 else "")
+        entries = []
+        for index, value in enumerate(values):
+            entry = ttk.Entry(parent, width=3, justify="center")
+            entry.insert(0, value)
+            entry.pack(side="left")
+            entries.append(entry)
+            if index in (0, 2):
+                ttk.Label(parent, text=":").pack(side="left")
+            if index == 1:
+                ttk.Label(parent, text=" - ").pack(side="left")
+        return entries
 
     def add_row(self, data=None):
         data = data or {"start": "", "end": "", "cells": {}}
@@ -204,11 +270,13 @@ class TimetableEditor(tk.Toplevel):
 
     def sync_widgets(self):
         for row in self.rows:
-            if "start_entry" in row:
-                row["start"].set(row["start_entry"].get().strip())
-                row["end"].set(row["end_entry"].get().strip())
+            if "time_entries" in row:
+                values = [entry.get().strip() for entry in row["time_entries"]]
+                row["start"].set(f"{values[0]}:{values[1]}")
+                row["end"].set(f"{values[2]}:{values[3]}")
             for day, widget in row["widgets"].items():
-                row["cells"][str(day)] = widget.get()
+                if widget.winfo_exists():
+                    row["cells"][str(day)] = widget.get()
 
     def collect_rows(self):
         self.sync_widgets()
@@ -229,11 +297,58 @@ class TimetableEditor(tk.Toplevel):
         self.render()
 
     def save(self):
+        self.sync_widgets()
+        if not self.validate_data():
+            logger.debug("因数据检查而阻止保存。")
+            return False
         try:
-            save_class(self.prefix, {"days": self.selected_days(), "rows": self.collect_rows()}, self.courses)
+            timetable = {"days": self.selected_days(), "rows": self.collect_rows()}
+            save_class(self.prefix, timetable, self.courses)
+            self.saved_state = self.current_state()
             messagebox.showinfo("保存成功", "课程表已保存到 data.zip。", parent=self)
+            return True
         except OSError as error:
             messagebox.showerror("保存失败", str(error), parent=self)
+            return False
+
+    def validate_data(self):
+        if not self.selected_days():
+            messagebox.showerror("数据检查", "至少选择一天课程。", parent=self)
+            return False
+        for index, row in enumerate(self.rows, 1):
+            for value in (row["start"].get(), row["end"].get()):
+                try:
+                    datetime.strptime(value, "%H:%M")
+                except ValueError:
+                    messagebox.showerror("数据检查", f"第 {index} 节时间必须为 HH:MM 格式。", parent=self)
+                    return False
+            start_hour, start_minute = map(int, row["start"].get().split(":", 1))
+            end_hour, end_minute = map(int, row["end"].get().split(":", 1))
+            start_total_minutes = 60 * start_hour + start_minute
+            end_total_minutes = 60 * end_hour + end_minute
+            if start_total_minutes >= end_total_minutes:
+                messagebox.showerror("数据检查", f"第 {index} 节的开始时间必须早于结束时间。", parent=self)
+                logger.debug("因数据检查而阻止保存。")
+                return False
+        return True
+
+    def current_state(self):
+        self.sync_widgets()
+        return {
+            "days": self.selected_days(),
+            "rows": self.collect_rows(),
+            "courses": list(self.courses),
+        }
+
+    def close(self):
+        if self.current_state() != self.saved_state:
+            logger.info("因未保存而阻止关闭。")
+            choice = messagebox.askyesnocancel("未保存的修改", "课程表有未保存的修改，是否保存？", parent=self)
+            if choice is None:
+                return
+            if choice and not self.save():
+                return
+        self.open_manager()
 
     def open_manager(self):
         self.destroy()
