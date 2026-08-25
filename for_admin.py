@@ -65,6 +65,92 @@ def load_json(path, default):
             return default
 
 
+def swap_timetable_days(timetable, first_day, second_day):
+    """交换课程表中两个日期的启用状态及所有课程、活动。"""
+    if first_day == second_day:
+        return timetable
+
+    days = timetable.get("days", [])
+    if first_day in days and second_day not in days:
+        days.remove(first_day)
+        days.append(second_day)
+    elif second_day in days and first_day not in days:
+        days.remove(second_day)
+        days.append(first_day)
+    timetable["days"] = sorted(days)
+
+    for row in timetable.get("rows", []):
+        cells = row.setdefault("cells", {})
+        first_value = cells.get(str(first_day), "")
+        second_value = cells.get(str(second_day), "")
+        if second_value:
+            cells[str(first_day)] = second_value
+        else:
+            cells.pop(str(first_day), None)
+        if first_value:
+            cells[str(second_day)] = first_value
+        else:
+            cells.pop(str(second_day), None)
+    return timetable
+
+
+def choose_swap_days(parent, title):
+    """弹出两个日期选择框，返回日期索引或 None。"""
+    dialog = tk.Toplevel(parent)
+    dialog.title(title)
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+    dialog.grab_set()
+    result = []
+    first = ttk.Combobox(dialog, values=DAY_NAMES, state="readonly", width=8)
+    second = ttk.Combobox(dialog, values=DAY_NAMES, state="readonly", width=8)
+    first.current(0)
+    second.current(1)
+    ttk.Label(dialog, text="将以下两天的课程与活动互换：").grid(
+        row=0, column=0, columnspan=3, padx=16, pady=(16, 10)
+    )
+    first.grid(row=1, column=0, padx=(16, 6), pady=6)
+    ttk.Label(dialog, text="⇄").grid(row=1, column=1, padx=4)
+    second.grid(row=1, column=2, padx=(6, 16), pady=6)
+
+    def confirm():
+        if first.current() == second.current():
+            messagebox.showerror("提示", "请选择两个不同的日期。", parent=dialog)
+            return
+        result.extend((first.current(), second.current()))
+        dialog.destroy()
+
+    buttons = ttk.Frame(dialog)
+    buttons.grid(row=2, column=0, columnspan=3, pady=(8, 16))
+    ttk.Button(buttons, text="取消", command=dialog.destroy).pack(side="right")
+    ttk.Button(buttons, text="确定", command=confirm).pack(side="right", padx=8)
+    parent.wait_window(dialog)
+    return tuple(result) if result else None
+
+
+def swap_all_classes(first_day, second_day):
+    """交换 ZIP 中全部班级的两个日期。"""
+    changed = []
+    for prefix in available_classes():
+        timetable = load_json(f"{prefix}/timetable.json", None)
+        if isinstance(timetable, dict):
+            changed.append((prefix, swap_timetable_days(timetable, first_day, second_day)))
+
+    archive_info = load_json("data.json", {})
+    if not isinstance(archive_info, dict):
+        archive_info = {}
+    archive_info["version"] = time.time()
+    payloads = {
+        f"{prefix}/timetable.json": json.dumps(timetable, ensure_ascii=False, indent=2).encode("utf-8")
+        for prefix, timetable in changed
+    }
+    payloads["data.json"] = json.dumps(archive_info, ensure_ascii=False, indent=2).encode("utf-8")
+    for path, content in payloads.items():
+        if not zip_change_file(ARCHIVE_PATH, path, content):
+            raise OSError(f"无法写入 {path}")
+    return len(changed)
+
+
 def save_class(prefix, timetable, courses=None):
     ensure_archive()
     archive_info = load_json("data.json", {})
@@ -113,6 +199,19 @@ class ClassManager(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", parent.destroy)
 
         ttk.Label(self, text="选择要编辑的班级", font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 10))
+        search_frame = ttk.Frame(self)
+        search_frame.pack(fill="x", padx=24, pady=(0, 10))
+        self.grade_search = tk.StringVar()
+        self.class_search = tk.StringVar()
+        ttk.Label(search_frame, text="年级").pack(side="left")
+        grade_entry = ttk.Entry(search_frame, textvariable=self.grade_search, width=8)
+        grade_entry.pack(side="left", padx=(4, 12))
+        ttk.Label(search_frame, text="班级").pack(side="left")
+        class_entry = ttk.Entry(search_frame, textvariable=self.class_search, width=8)
+        class_entry.pack(side="left", padx=(4, 12))
+        ttk.Button(search_frame, text="搜索", command=self.search).pack(side="left")
+        grade_entry.bind("<Return>", lambda _event: self.search())
+        class_entry.bind("<Return>", lambda _event: self.search())
         self.listbox = tk.Listbox(self, height=11, activestyle="dotbox")
         self.listbox.pack(fill="both", expand=True, padx=24)
         self.listbox.bind("<Double-Button-1>", lambda _event: self.select())
@@ -120,6 +219,7 @@ class ClassManager(tk.Toplevel):
         buttons.pack(fill="x", padx=24, pady=16)
         ttk.Button(buttons, text="添加班级", command=self.add).pack(side="left")
         ttk.Button(buttons, text="删除班级", command=self.remove).pack(side="left", padx=8)
+        ttk.Button(buttons, text="全系统调换日期", command=self.swap_all_days).pack(side="left")
         ttk.Button(buttons, text="打开", command=self.select).pack(side="right")
         self.refresh()
 
@@ -127,9 +227,25 @@ class ClassManager(tk.Toplevel):
         self.listbox.delete(0, tk.END)
         self.class_items = []
         names = class_names()
-        for prefix in available_classes():
+        for prefix in self.filtered_classes():
             self.class_items.append(prefix)
             self.listbox.insert(tk.END, names.get(prefix, prefix))
+
+    def filtered_classes(self):
+        grade = self.grade_search.get().strip()
+        class_number = self.class_search.get().strip()
+        prefixes = available_classes()
+        if grade and class_number:
+            target = class_prefix(grade, class_number)
+            return [prefix for prefix in prefixes if prefix == target]
+        if grade:
+            return [prefix for prefix in prefixes if prefix.startswith(f"g{grade}-c")]
+        if class_number:
+            return [prefix for prefix in prefixes if prefix.endswith(f"-c{class_number}")]
+        return prefixes
+
+    def search(self):
+        self.refresh()
 
     def add(self):
         grade = simpledialog.askstring("添加班级", "年级：", parent=self)
@@ -176,6 +292,24 @@ class ClassManager(tk.Toplevel):
         if selection:
             self.on_select(self.class_items[selection[0]])
 
+    def swap_all_days(self):
+        selected = choose_swap_days(self, "全系统调换日期")
+        if not selected:
+            return
+        first_day, second_day = selected
+        if not messagebox.askyesno(
+            "确认调换",
+            f"确定调换全系统的{DAY_NAMES[first_day]}和{DAY_NAMES[second_day]}吗？",
+            parent=self,
+        ):
+            return
+        try:
+            count = swap_all_classes(first_day, second_day)
+            logger.info("全系统调换日期: %s <-> %s，共 %s 个班级", DAY_NAMES[first_day], DAY_NAMES[second_day], count)
+            messagebox.showinfo("调换成功", f"已调换 {count} 个班级的课程与活动。", parent=self)
+        except OSError as error:
+            messagebox.showerror("调换失败", str(error), parent=self)
+
 
 class TimetableEditor(tk.Toplevel):
     def __init__(self, manager, prefix):
@@ -211,6 +345,7 @@ class TimetableEditor(tk.Toplevel):
         ttk.Button(toolbar, text="增加节次", command=self.add_period).pack(side="left", padx=(24, 0))
         ttk.Button(toolbar, text="删除末节", command=self.remove_period).pack(side="left", padx=8)
         ttk.Button(toolbar, text="导入 XLSX", command=self.import_xlsx).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="调换日期", command=self.swap_days).pack(side="left", padx=8)
         ttk.Button(toolbar, text="保存", command=self.save).pack(side="right")
         ttk.Button(toolbar, text="打开", command=self.open_manager).pack(side="right", padx=8)
         ttk.Button(toolbar, text="编辑课程", command=self.edit_courses).pack(side="right", padx=8)
@@ -297,6 +432,30 @@ class TimetableEditor(tk.Toplevel):
         self.sync_widgets()
         self.rows.pop()
         self.render()
+
+    def swap_days(self):
+        selected = choose_swap_days(self, "调换当前班级日期")
+        if not selected:
+            return
+        first_day, second_day = selected
+        self.sync_widgets()
+        timetable = {
+            "days": self.selected_days(),
+            "rows": self.collect_rows(),
+        }
+        swap_timetable_days(timetable, first_day, second_day)
+        for index, variable in enumerate(self.day_vars):
+            variable.set(index in timetable["days"])
+        self.rows.clear()
+        for data in timetable["rows"]:
+            self.rows.append({
+                "start": tk.StringVar(value=data.get("start", "")),
+                "end": tk.StringVar(value=data.get("end", "")),
+                "cells": data.get("cells", {}),
+                "widgets": {},
+            })
+        self.render()
+        logger.info("当前班级调换日期（尚未保存）: %s <-> %s", DAY_NAMES[first_day], DAY_NAMES[second_day])
 
     def import_xlsx(self):
         """导入 XLSX 到当前编辑器，实际写入需点击保存。"""
