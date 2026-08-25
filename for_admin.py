@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import threading
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -11,6 +12,7 @@ from datetime import datetime
 
 from zip_operator import zip_change_file
 from get_course_from_xlsx import CourseScheduleParser
+import main as sync_program
 
 
 logging.basicConfig(level=logging.INFO)
@@ -623,6 +625,12 @@ def start_editor(manager, prefix):
 
 
 def main():
+    sync_thread = threading.Thread(
+        target=sync_program.main,
+        daemon=True,
+        name="课程表同步程序",
+    )
+    sync_thread.start()
     root = tk.Tk()
     root.withdraw()
     manager = ClassManager(root, lambda prefix: start_editor(manager, prefix))
