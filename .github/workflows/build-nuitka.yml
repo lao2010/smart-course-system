@@ -1,0 +1,66 @@
+name: Build Windows applications
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: admin
+            script: for_admin.py
+          - name: classroom-device
+            script: for_classroom_device.py
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install project dependencies
+        shell: pwsh
+        run: uv sync --locked
+
+      - name: Install Nuitka
+        shell: pwsh
+        run: uv pip install --python .venv\Scripts\python.exe Nuitka
+
+      - name: Prepare runtime data directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path data | Out-Null
+
+      - name: Compile application
+        shell: pwsh
+        run: >-
+          uv run --no-sync python -m nuitka
+          --standalone
+          --assume-yes-for-downloads
+          --enable-plugin=tk-inter
+          --windows-console-mode=disable
+          --output-dir=dist\${{ matrix.name }}
+          --include-data-dir=data=data
+          ${{ matrix.script }}
+
+      - name: Upload application artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-cr-${{ matrix.name }}
+          path: dist\${{ matrix.name }}\${{ matrix.script == 'for_admin.py' && 'for_admin.dist' || 'for_classroom_device.dist' }}
+          if-no-files-found: error
