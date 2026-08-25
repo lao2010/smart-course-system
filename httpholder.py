@@ -11,6 +11,7 @@ import logging
 from friend_finder import verify_token
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from logging_setup import configure_logging
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -94,11 +95,7 @@ ready_event = threading.Event()
 server_instance = None
 def main():
 	global port, server_instance
-	logging.basicConfig(
-		level=logging.INFO,
-		format="%(asctime)s | %(levelname)-8s | %(threadName)s | %(name)s | %(message)s",
-		datefmt="%Y-%m-%d %H:%M:%S",
-	)
+	configure_logging()
 	logger.info("HTTP 服务启动")
 	import argparse
 

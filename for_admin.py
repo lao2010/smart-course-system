@@ -13,9 +13,10 @@ from datetime import datetime
 from zip_operator import zip_change_file
 from get_course_from_xlsx import CourseScheduleParser
 import main as sync_program
+from logging_setup import configure_logging
 
 
-logging.basicConfig(level=logging.INFO)
+configure_logging()
 logger = logging.getLogger(__name__)
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ARCHIVE_PATH = os.path.join(ROOT, "data", "data.zip")

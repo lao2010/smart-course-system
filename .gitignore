@@ -41,3 +41,8 @@ data/data.zip
 # OS files
 .DS_Store
 Thumbs.db
+
+# log files
+*.log
+log/
+logs/

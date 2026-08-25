@@ -12,15 +12,11 @@ import logging
 import time
 from urllib.parse import urljoin
 from friend_finder import generate_token
+from logging_setup import configure_logging
 
 
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(threadName)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+configure_logging()
 
 thread_num = 4
 thread_work_list = [[] for i in range(thread_num)]
