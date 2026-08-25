@@ -633,7 +633,14 @@ def main():
     sync_thread.start()
     root = tk.Tk()
     root.withdraw()
+
+    def shutdown():
+        sync_program.stop_event.set()
+        root.destroy()
+        sync_thread.join(timeout=6)
+
     manager = ClassManager(root, lambda prefix: start_editor(manager, prefix))
+    manager.protocol("WM_DELETE_WINDOW", shutdown)
     root.mainloop()
 
 
