@@ -60,6 +60,7 @@ def class_names():
 
 
 def load_json(path, default):
+    ensure_archive()
     with ZipFile(ARCHIVE_PATH) as archive:
         try:
             with archive.open(path) as stream:
