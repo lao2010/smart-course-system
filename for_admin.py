@@ -5,11 +5,12 @@ import logging
 import os
 import time
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from zipfile import ZipFile
 from datetime import datetime
 
 from zip_operator import zip_change_file
+from get_course_from_xlsx import CourseScheduleParser
 
 
 logging.basicConfig(level=logging.INFO)
@@ -209,6 +210,7 @@ class TimetableEditor(tk.Toplevel):
         ttk.Label(toolbar, text=f"班级：{self.display_name}", font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
         ttk.Button(toolbar, text="增加节次", command=self.add_period).pack(side="left", padx=(24, 0))
         ttk.Button(toolbar, text="删除末节", command=self.remove_period).pack(side="left", padx=8)
+        ttk.Button(toolbar, text="导入 XLSX", command=self.import_xlsx).pack(side="left", padx=8)
         ttk.Button(toolbar, text="保存", command=self.save).pack(side="right")
         ttk.Button(toolbar, text="打开", command=self.open_manager).pack(side="right", padx=8)
         ttk.Button(toolbar, text="编辑课程", command=self.edit_courses).pack(side="right", padx=8)
@@ -295,6 +297,77 @@ class TimetableEditor(tk.Toplevel):
         self.sync_widgets()
         self.rows.pop()
         self.render()
+
+    def import_xlsx(self):
+        """导入 XLSX 到当前编辑器，实际写入需点击保存。"""
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="选择课程表 Excel 文件",
+            filetypes=[("Excel 文件", "*.xlsx *.xlsm"), ("所有文件", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            parser = CourseScheduleParser(file_path)
+            imported = parser.parse()
+            if not imported:
+                raise ValueError("未找到有效的课程表。")
+
+            sorted_days = [
+                day for day in parser.DAY_ORDER
+                if day in parser.day_columns
+            ]
+            if not sorted_days or not imported["time"]:
+                raise ValueError("课程表中没有检测到星期或节次。")
+
+            # 导入的星期映射到编辑器的 0=周一 ... 6=周日。
+            for day_index, day_name in enumerate(parser.DAY_ORDER):
+                self.day_vars[day_index].set(day_name in sorted_days)
+
+            imported_rows = []
+            imported_courses = []
+            for row_index, time_value in enumerate(imported["time"]):
+                start = end = ""
+                if time_value:
+                    start = f"{time_value[0]:02d}:{time_value[1]:02d}"
+                    end = f"{time_value[2]:02d}:{time_value[3]:02d}"
+
+                cells = {}
+                for day_position, day_name in enumerate(sorted_days):
+                    day_index = parser.DAY_ORDER.index(day_name)
+                    course = imported["list"][day_position][row_index].strip()
+                    cells[str(day_index)] = course
+                    if course and course not in imported_courses:
+                        imported_courses.append(course)
+
+                imported_rows.append({
+                    "start": start,
+                    "end": end,
+                    "cells": cells,
+                })
+
+            # 保留原课程，只追加 XLSX 中不存在的课程。
+            for course in imported_courses:
+                if course not in self.courses:
+                    self.courses.append(course)
+
+            self.rows.clear()
+            for row in imported_rows:
+                start = tk.StringVar(value=row["start"])
+                end = tk.StringVar(value=row["end"])
+                self.rows.append({
+                    "start": start,
+                    "end": end,
+                    "cells": row["cells"],
+                    "widgets": {},
+                })
+            self.render()
+            logger.info("已导入 XLSX（尚未保存）: %s", file_path)
+            messagebox.showinfo("导入成功", "课程表已导入当前编辑器，请检查后点击保存。", parent=self)
+        except Exception as error:
+            logger.exception("导入 XLSX 失败")
+            messagebox.showerror("导入失败", str(error), parent=self)
 
     def save(self):
         self.sync_widgets()
