@@ -15,7 +15,7 @@ from friend_finder import generate_token
 from logging_setup import configure_logging
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("数据同步服务")
 configure_logging()
 
 thread_num = 4

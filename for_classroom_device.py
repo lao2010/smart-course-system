@@ -7,6 +7,8 @@ import easygui
 import gui
 import subprocess
 import sys
+import main as sync_program
+import threading
 import os
 import ctypes
 import logging
@@ -15,7 +17,7 @@ from logging_setup import configure_logging
 
 python_path = sys.executable
 DAY_NAMES = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("课堂设备程序")
 configure_logging()
 
 
@@ -99,55 +101,72 @@ def format_schedule(timetable):
 
 def main():
     global used_hours, used_minutes, used_weekday
+
+    sync_thread = threading.Thread(
+        target=sync_program.main,
+        daemon=True,
+        name="课程表同步程序",
+    )
+    sync_thread.start()
+
     used_time = -1
     schedule_available = None
     schedule_signature = None
     timetable = None
     next_schedule_refresh = 0.0
     logger.info("课堂设备程序已启动")
-
-    while True: 
-        refresh_time()
-        current_time = time.monotonic()
-        if current_time >= next_schedule_refresh:
-            logger.info("正在读取课程表")
-            timetable = read_schedule()
-            next_schedule_refresh = current_time + 20
-            if not timetable:
-                if schedule_available is not False:
-                    logger.warning("暂无可用课程表，程序将继续等待")
-                    schedule_available = False
-            else:
-                if schedule_available is not True:
-                    logger.info("课程表读取成功")
-                    schedule_available = True
-                current_signature = json.dumps(timetable, ensure_ascii=False, sort_keys=True)
-                if current_signature != schedule_signature:
-                    logger.info("\n%s", format_schedule(timetable))
-                    schedule_signature = current_signature
-
-        if not timetable:
-            time.sleep(0.3)
-            continue
-        if minute_time == used_time:
-            logger.debug("当前时间 %s %s:%02d 已处理过，无需再次检查", weekday, hour, minute)
-            time.sleep(60 - second)
-            continue
-        logger.debug("开始检查当前时间 %s %s:%02d 对应的课程", weekday, hour, minute)
-        for i in timetable["rows"]: 
-            if i["cells"].get(str(weekday), None) is not None:
-                start_hour = int(str(i["start"]).split(":")[0])
-                start_minute = int(str(i["start"]).split(":")[1])
-                start_time = get_time(weekday, start_hour, start_minute)
-                if start_time <= used_time:
-                    continue
-                elif start_time == minute_time and used_time < start_time:
-                    remind_course(i["cells"][str(weekday)], i["start"], i["end"])
-                    used_time = start_time
-
+    try:
+        while True: 
+            refresh_time()
+            current_time = time.monotonic()
+            if current_time >= next_schedule_refresh:
+                logger.info("正在读取课程表")
+                timetable = read_schedule()
+                next_schedule_refresh = current_time + 20
+                if not timetable:
+                    if schedule_available is not False:
+                        logger.warning("暂无可用课程表，程序将继续等待")
+                        schedule_available = False
                 else:
-                    used_time = start_time
-        time.sleep(0.3)
+                    if schedule_available is not True:
+                        logger.info("课程表读取成功")
+                        schedule_available = True
+                    current_signature = json.dumps(timetable, ensure_ascii=False, sort_keys=True)
+                    if current_signature != schedule_signature:
+                        logger.info("\n%s", format_schedule(timetable))
+                        schedule_signature = current_signature
+
+            if not timetable:
+                time.sleep(0.3)
+                continue
+            if minute_time == used_time:
+                logger.debug("当前时间 %s %s:%02d 已处理过，无需再次检查", weekday, hour, minute)
+                time.sleep(60 - second)
+                continue
+            logger.debug("开始检查当前时间 %s %s:%02d 对应的课程", weekday, hour, minute)
+            for i in timetable["rows"]: 
+                if i["cells"].get(str(weekday), None) is not None:
+                    start_hour = int(str(i["start"]).split(":")[0])
+                    start_minute = int(str(i["start"]).split(":")[1])
+                    start_time = get_time(weekday, start_hour, start_minute)
+                    if start_time <= used_time:
+                        continue
+                    elif start_time == minute_time and used_time < start_time:
+                        remind_course(i["cells"][str(weekday)], i["start"], i["end"])
+                        used_time = start_time
+
+                    else:
+                        used_time = start_time
+            time.sleep(0.3)
+    except KeyboardInterrupt:
+        logger.info("课堂设备程序收到退出信号，正在关闭...")
+    except Exception as e:
+        logger.exception("课堂设备程序发生未处理的异常，正在关闭...")
+        logger.error("异常信息: %s", str(e))
+    finally:
+        sync_program.stop_event.set()
+        sync_thread.join(timeout=6)
+        logger.info("课堂设备程序已退出")
 
 if __name__ == "__main__":
     main()

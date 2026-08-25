@@ -15,7 +15,7 @@ from logging_setup import configure_logging
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("HTTP-数据同步响应服务")
 
 
 class Handler(BaseHTTPRequestHandler):

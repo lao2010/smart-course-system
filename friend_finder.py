@@ -7,7 +7,7 @@ import time
 import logging
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("网络同类发现")
 
 # 认证核心：预共享密钥、HMAC 签名和时间戳防重放。
 SECRET_KEY = "2026_Secret:lkjinnhbgsdjcn123456789"  # 所有运行该程序的电脑必须使用相同密钥。

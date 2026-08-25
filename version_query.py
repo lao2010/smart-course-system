@@ -5,7 +5,7 @@ from zip_operator import zip_read
 from logging_setup import configure_logging
 
 archive_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "data.zip")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("版本查询")
 def get_version():
     try:
         data = json.loads(zip_read(archive_path, "data.json"))

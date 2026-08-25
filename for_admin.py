@@ -17,7 +17,7 @@ from logging_setup import configure_logging
 
 
 configure_logging()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("管理员系统")
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ARCHIVE_PATH = os.path.join(ROOT, "data", "data.zip")
 DAY_NAMES = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
