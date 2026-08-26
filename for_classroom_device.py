@@ -117,6 +117,8 @@ def main():
     timetable = None
     next_schedule_refresh = 0.0
     logger.info("课堂设备程序已启动")
+    if "--no-start-msg" not in sys.argv:
+        easygui.msgbox(title="提示", msg="程序已启动", ok_button="好的")
     try:
         while True: 
             refresh_time()

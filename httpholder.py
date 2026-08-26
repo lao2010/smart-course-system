@@ -100,6 +100,7 @@ def main():
 	parser.add_argument("--host", default="0.0.0.0")
 	parser.add_argument("--port", type=int, default=random.randint(80, 25565))
 	parser.add_argument("--max-concurrent", type=int, default=2)
+	parser.add_argument("--no-start-msg", action="store_true", help=argparse.SUPPRESS)
 	options = parser.parse_args()
 	if options.max_concurrent < 1:
 		parser.error("--max-concurrent must be at least 1")
