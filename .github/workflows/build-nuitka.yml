@@ -74,6 +74,24 @@ jobs:
           --include-data-dir=data=data
           for_classroom_device.py
 
+      - name: Compile uninstaller
+        shell: pwsh
+        run: >-
+          uv run --no-sync python -m nuitka
+          --onefile
+          --assume-yes-for-downloads
+          --enable-plugin=tk-inter
+          --windows-console-mode=disable
+          --output-dir=dist\uninstaller
+          --output-filename=uninstall.exe
+          uninstall.py
+
+      - name: Add uninstallers to application packages
+        shell: pwsh
+        run: |
+          Copy-Item dist\uninstaller\uninstall.exe dist\admin\for_admin.dist\uninstall.exe
+          Copy-Item dist\uninstaller\uninstall.exe dist\classroom\for_classroom_device.dist\uninstall.exe
+
       - name: Compile installer
         shell: pwsh
         run: >-

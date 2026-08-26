@@ -2,7 +2,6 @@
 """SmartCR 安装程序。"""
 
 import shutil
-import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -26,7 +25,7 @@ def install_packages(packages, destination):
         source = root / package
         if not source.is_dir():
             raise FileNotFoundError(f"安装文件不存在：{source}")
-        target = destination if len(packages) == 1 else destination / f"smart-cr-{APP_NAMES[package]}"
+        target = destination / f"smart-cr-{APP_NAMES[package]}"
         shutil.copytree(source, target, dirs_exist_ok=True)
 
 
