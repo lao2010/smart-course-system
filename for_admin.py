@@ -4,7 +4,9 @@
 import json
 import logging
 import os
-import threading
+import psutil
+import subprocess
+import sys
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -13,7 +15,6 @@ from datetime import datetime
 
 from zip_operator import zip_change_file
 from get_course_from_xlsx import CourseScheduleParser
-import main as sync_program
 from logging_setup import configure_logging
 
 
@@ -22,6 +23,52 @@ logger = logging.getLogger("管理员系统")
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ARCHIVE_PATH = os.path.join(ROOT, "data", "data.zip")
 DAY_NAMES = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+
+def _sync_targets():
+    return [
+        path for path in (os.path.join(ROOT, "main.exe"), os.path.join(ROOT, "main.py"))
+        if os.path.isfile(path)
+    ]
+
+
+def _is_sync_running():
+    target_paths = {os.path.normcase(os.path.abspath(path)) for path in _sync_targets()}
+    for process in psutil.process_iter(("exe", "cmdline")):
+        try:
+            executable = process.info.get("exe")
+            if executable and os.path.normcase(os.path.abspath(executable)) in target_paths:
+                return True
+            for argument in process.info.get("cmdline") or []:
+                if os.path.normcase(os.path.abspath(argument)) in target_paths:
+                    return True
+        except (psutil.Error, OSError, ValueError):
+            continue
+    return False
+
+
+def _start_sync_process():
+    targets = _sync_targets()
+    if not targets:
+        logger.warning("同目录下未找到 main.exe 或 main.py")
+        return False
+    target = targets[0]
+    command = [target] if target.endswith(".exe") else [sys.executable, target]
+    try:
+        subprocess.Popen(command, cwd=ROOT)
+        logger.info("已启动同步程序：%s", target)
+        return True
+    except OSError as error:
+        logger.error("启动同步程序失败：%s", error)
+        return False
+
+
+def ensure_sync_process(prompt=False):
+    if _is_sync_running():
+        return True
+    if prompt and not messagebox.askyesno("同步程序未运行", "同步程序 main 未运行，是否启动？"):
+        return False
+    return _start_sync_process()
 
 
 def class_prefix(grade, class_number):
@@ -538,6 +585,7 @@ class TimetableEditor(tk.Toplevel):
         if not self.validate_data():
             logger.debug("因数据检查而阻止保存。")
             return False
+        ensure_sync_process(prompt=True)
         try:
             timetable = {"days": self.selected_days(), "rows": self.collect_rows()}
             save_class(self.prefix, timetable, self.courses)
@@ -628,19 +676,12 @@ def start_editor(manager, prefix):
 
 
 def main():
-    sync_thread = threading.Thread(
-        target=sync_program.main,
-        daemon=True,
-        name="课程表同步程序",
-    )
-    sync_thread.start()
+    ensure_sync_process()
     root = tk.Tk()
     root.withdraw()
 
     def shutdown():
-        sync_program.stop_event.set()
         root.destroy()
-        sync_thread.join(timeout=6)
 
     manager = ClassManager(root, lambda prefix: start_editor(manager, prefix))
     manager.protocol("WM_DELETE_WINDOW", shutdown)
