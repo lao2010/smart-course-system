@@ -92,6 +92,14 @@ jobs:
           Copy-Item dist\uninstaller\uninstall.exe dist\admin\for_admin.dist\uninstall.exe
           Copy-Item dist\uninstaller\uninstall.exe dist\classroom\for_classroom_device.dist\uninstall.exe
 
+      - name: Create installer payload archives
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path payload | Out-Null
+          Compress-Archive -Path dist\admin\for_admin.dist\* -DestinationPath payload\admin.zip -CompressionLevel Optimal
+          Compress-Archive -Path dist\classroom\for_classroom_device.dist\* -DestinationPath payload\classroom.zip -CompressionLevel Optimal
+          if ((Get-Item payload\admin.zip).Length -le 0 -or (Get-Item payload\classroom.zip).Length -le 0) { throw "Installer payload archive is empty" }
+
       - name: Compile installer
         shell: pwsh
         run: >-
@@ -102,9 +110,15 @@ jobs:
           --windows-console-mode=disable
           --output-dir=dist\installer
           --output-filename=smart-cr-installer.exe
-          --include-data-dir=dist\admin\for_admin.dist=payload\admin
-          --include-data-dir=dist\classroom\for_classroom_device.dist=payload\classroom
+          --include-data-files=payload\admin.zip=payload\admin.zip
+          --include-data-files=payload\classroom.zip=payload\classroom.zip
           installer.py
+
+      - name: Verify installer output
+        shell: pwsh
+        run: |
+          $installer = Get-Item dist\installer\smart-cr-installer.exe
+          if ($installer.Length -le 30000000) { throw "Installer is unexpectedly small: $($installer.Length) bytes" }
 
       - name: Upload teacher artifact
         uses: actions/upload-artifact@v7

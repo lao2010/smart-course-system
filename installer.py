@@ -3,6 +3,8 @@
 
 import shutil
 import tkinter as tk
+import tempfile
+import zipfile
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
@@ -17,16 +19,30 @@ def payload_root():
     return Path(__file__).resolve().parent / "payload"
 
 
+def extract_payload(package, destination):
+    archive_path = payload_root() / f"{package}.zip"
+    if not archive_path.is_file():
+        raise FileNotFoundError(f"安装文件不存在：{archive_path}")
+    temporary_path = Path(tempfile.mkdtemp(prefix="smart-cr-payload-"))
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(temporary_path)
+        return temporary_path
+    except (OSError, zipfile.BadZipFile):
+        shutil.rmtree(temporary_path, ignore_errors=True)
+        raise
+
+
 def install_packages(packages, destination):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    root = payload_root()
     for package in packages:
-        source = root / package
-        if not source.is_dir():
-            raise FileNotFoundError(f"安装文件不存在：{source}")
+        source = extract_payload(package, destination)
         target = destination / f"smart-cr-{APP_NAMES[package]}"
-        shutil.copytree(source, target, dirs_exist_ok=True)
+        try:
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        finally:
+            shutil.rmtree(source, ignore_errors=True)
 
 
 def choose_install(packages):
