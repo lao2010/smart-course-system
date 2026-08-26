@@ -262,6 +262,7 @@ class ClassManager(tk.Toplevel):
         class_entry = ttk.Entry(search_frame, textvariable=self.class_search, width=8)
         class_entry.pack(side="left", padx=(4, 12))
         ttk.Button(search_frame, text="搜索", command=self.search).pack(side="left")
+        ttk.Button(search_frame, text="刷新", command=self.refresh).pack(side="left", padx=(8, 0))
         grade_entry.bind("<Return>", lambda _event: self.search())
         class_entry.bind("<Return>", lambda _event: self.search())
         self.listbox = tk.Listbox(self, height=11, activestyle="dotbox")
