@@ -9,16 +9,8 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.name }}
+    name: Build applications and installer
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: admin
-            script: for_admin.py
-          - name: classroom-device
-            script: for_classroom_device.py
 
     steps:
       - name: Check out repository
@@ -46,7 +38,7 @@ jobs:
         shell: pwsh
         run: New-Item -ItemType Directory -Force -Path data | Out-Null
 
-      - name: Compile application
+      - name: Compile teacher application
         shell: pwsh
         run: >-
           uv run --no-sync python -m nuitka
@@ -54,13 +46,65 @@ jobs:
           --assume-yes-for-downloads
           --enable-plugin=tk-inter
           --windows-console-mode=disable
-          --output-dir=dist\${{ matrix.name }}
+          --output-dir=dist\admin
           --include-data-dir=data=data
-          ${{ matrix.script }}
+          for_admin.py
 
-      - name: Upload application artifact
+      - name: Compile teacher sync service
+        shell: pwsh
+        run: >-
+          uv run --no-sync python -m nuitka
+          --onefile
+          --assume-yes-for-downloads
+          --windows-console-mode=disable
+          --output-dir=dist\admin\for_admin.dist
+          --include-data-dir=data=data
+          --output-filename=main.exe
+          main.py
+
+      - name: Compile classroom application
+        shell: pwsh
+        run: >-
+          uv run --no-sync python -m nuitka
+          --standalone
+          --assume-yes-for-downloads
+          --enable-plugin=tk-inter
+          --windows-console-mode=disable
+          --output-dir=dist\classroom
+          --include-data-dir=data=data
+          for_classroom_device.py
+
+      - name: Compile installer
+        shell: pwsh
+        run: >-
+          uv run --no-sync python -m nuitka
+          --onefile
+          --assume-yes-for-downloads
+          --enable-plugin=tk-inter
+          --windows-console-mode=disable
+          --output-dir=dist\installer
+          --output-filename=smart-cr-installer.exe
+          --include-data-dir=dist\admin\for_admin.dist=payload\admin
+          --include-data-dir=dist\classroom\for_classroom_device.dist=payload\classroom
+          installer.py
+
+      - name: Upload teacher artifact
         uses: actions/upload-artifact@v7
         with:
-          name: smart-cr-${{ matrix.name }}
-          path: dist\${{ matrix.name }}\${{ matrix.script == 'for_admin.py' && 'for_admin.dist' || 'for_classroom_device.dist' }}
+          name: smart-cr-admin
+          path: dist\admin\for_admin.dist
+          if-no-files-found: error
+
+      - name: Upload classroom artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: smart-cr-classroom-device
+          path: dist\classroom\for_classroom_device.dist
+          if-no-files-found: error
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: smart-cr-installer
+          path: dist\installer\smart-cr-installer.exe
           if-no-files-found: error
