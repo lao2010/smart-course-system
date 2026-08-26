@@ -1,0 +1,12 @@
+# 课程表同步服务
+requests>=2.28
+
+# Excel 课程表解析
+openpyxl>=3.1
+
+# 教室端配置向导 / 弹窗
+easygui>=0.98
+
+# Windows 系统通知（Toast），仅 Windows 安装
+winrt-Windows.Data.Xml.Dom ; sys_platform == "win32"
+winrt-Windows.UI.Notifications ; sys_platform == "win32"

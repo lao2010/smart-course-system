@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """提供数据下载和版本查询接口的轻量级 HTTP 服务。"""
 
 import importlib.util

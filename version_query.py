@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import json
 import os
 import logging
@@ -8,7 +10,7 @@ archive_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", 
 logger = logging.getLogger("版本查询")
 def get_version():
     try:
-        data = json.loads(zip_read(archive_path, "data.json"))
+        data = json.loads(zip_read(archive_path, "data.json").decode("utf-8"))
         return float(data.get("version", "1.1"))
     except (json.JSONDecodeError, TypeError, ValueError):
         return -1.114514

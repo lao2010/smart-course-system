@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import json
 
 def read_json(file_path):
@@ -5,7 +7,7 @@ def read_json(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 
 def write_json(file_path, data):

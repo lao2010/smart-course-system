@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """提供可退出的定时全屏提醒。"""
 
 import tkinter as tk

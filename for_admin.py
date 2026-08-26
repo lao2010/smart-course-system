@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """课程表管理器入口。"""
 
 import json

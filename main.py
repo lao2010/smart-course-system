@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import json
 import time
 import os
@@ -52,25 +54,26 @@ def thread_work(num, discovery):
             logger.info("工作线程 %s 正在查询节点 %s", num, task)
             try:
                 response = requests.get(node_url(task, "/query"), headers=auth_headers(), timeout=5)
+                response_text = response.content.decode("utf-8")
                 if response.status_code == 500:
                     logger.warning(f"节点{task} 负载过高，跳过。")
                     continue
                 elif response.status_code == 200:
-                    logger.info("工作线程 %s 从 %s 收到数据版本 %s", num, task, response.text)
-                    logger.info("当前本地版本：%s，节点版本：%s", version_query.get_version(), response.text)
-                    if float(response.text) > version_query.get_version() and float(response.text) > data_update_target_version:
+                    logger.info("工作线程 %s 从 %s 收到数据版本 %s", num, task, response_text)
+                    logger.info("当前本地版本：%s，节点版本：%s", version_query.get_version(), response_text)
+                    if float(response_text) > version_query.get_version() and float(response_text) > data_update_target_version:
                         with data_update_lock:
-                            logger.info("工作线程 %s 在 %s 发现新数据版本 %s", num, task, response.text)
-                            data_update_target_version = float(response.text)
+                            logger.info("工作线程 %s 在 %s 发现新数据版本 %s", num, task, response_text)
+                            data_update_target_version = float(response_text)
                             data_update_url = task
                             data_update_flag = True
                 else:
-                    logger.warning("工作线程 %s 收到节点错误：%s - %s", num, response.status_code, response.text)
+                        logger.warning("工作线程 %s 收到节点错误：%s - %s", num, response.status_code, response_text)
 
             except requests.exceptions.ConnectionError as error:
                 discovery.remove_peer(task)
                 logger.warning("工作线程 %s 查询节点 %s 失败，已从节点缓存移除：%s", num, task, error)
-            except (requests.RequestException, ValueError) as error:
+            except (requests.RequestException, UnicodeDecodeError, ValueError) as error:
                 logger.warning("工作线程 %s 查询节点 %s 失败：%s", num, task, error)
             except Exception:
                 logger.exception("工作线程 %s 查询节点 %s 时发生未预期错误", num, task)
