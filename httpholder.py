@@ -67,10 +67,6 @@ class Handler(BaseHTTPRequestHandler):
 			return
 
 		if request.path == "/query":
-			version_query_path = os.path.join(ROOT, "version_query.py")
-			if not os.path.isfile(version_query_path):
-				self._send(404, "未找到版本查阅工具")
-				return
 			try:
 				result = version_query.get_version()
 				self._send(200, str(result))
