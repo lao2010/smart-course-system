@@ -143,3 +143,8 @@ class FriendFinder:
             # 只返回最近 66 秒内仍活跃的节点。
             result = [f"{self.peers[i]['ip']}:{self.peers[i]['app_port']}" for i in self.peers if now - self.peers[i]["last_seen"] < 66]
             return result
+
+    def remove_peer(self, node):
+        """移除无法连接的节点，避免在缓存过期前反复查询。"""
+        with self.lock:
+            self.peers.pop(node, None)

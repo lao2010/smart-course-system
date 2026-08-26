@@ -34,7 +34,7 @@ def node_url(node: str, path: str) -> str:
     base_url = node if node.startswith(("http://", "https://")) else f"http://{node}"
     return urljoin(f"{base_url.rstrip('/')}/", path.lstrip('/'))
 
-def thread_work(num):
+def thread_work(num, discovery):
     global temp_for_thread_init
     global data_update_target_version
     global data_update_url
@@ -67,6 +67,9 @@ def thread_work(num):
                 else:
                     logger.warning("工作线程 %s 收到节点错误：%s - %s", num, response.status_code, response.text)
 
+            except requests.exceptions.ConnectionError as error:
+                discovery.remove_peer(task)
+                logger.warning("工作线程 %s 查询节点 %s 失败，已从节点缓存移除：%s", num, task, error)
             except (requests.RequestException, ValueError) as error:
                 logger.warning("工作线程 %s 查询节点 %s 失败：%s", num, task, error)
             except Exception:
@@ -134,14 +137,14 @@ def main():
         discovery.start()
         thread_sleep_flag = True
         for i in range(thread_num):
-            t = threading.Thread(target=thread_work, args=(i,), daemon=True, name=f"工作线程-{i}")
+            t = threading.Thread(target=thread_work, args=(i, discovery), daemon=True, name=f"工作线程-{i}")
             worker_threads.append(t)
             t.start()
             temp_for_thread_init = True
             while temp_for_thread_init and not stop_event.is_set():
                 stop_event.wait(0.1)
         while not stop_event.is_set():
-            stop_event.wait(1)
+            stop_event.wait(discovery.interval)
             if stop_event.is_set():
                 break
             node_list = [a_node for a_node in discovery.get_usable_list()]
