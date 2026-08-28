@@ -2,6 +2,7 @@
 """课程表管理器入口。"""
 
 import json
+from copy import deepcopy
 import logging
 import os
 import psutil
@@ -389,6 +390,12 @@ class TimetableEditor(tk.Toplevel):
         if not self.rows:
             self.add_row()
         self.saved_state = self.current_state()
+        self.history = [deepcopy(self.saved_state)]
+        self.history_index = 0
+        self._history_suspended = False
+        self.bind_all("<Control-z>", self.undo)
+        self.bind_all("<Control-y>", self.redo)
+        self.update_history_buttons()
         self.protocol("WM_DELETE_WINDOW", self.close)
 
     def make_toolbar(self):
@@ -397,6 +404,10 @@ class TimetableEditor(tk.Toplevel):
         ttk.Label(toolbar, text=f"班级：{self.display_name}", font=("Microsoft YaHei UI", 14, "bold")).pack(side="left")
         ttk.Button(toolbar, text="增加节次", command=self.add_period).pack(side="left", padx=(24, 0))
         ttk.Button(toolbar, text="删除末节", command=self.remove_period).pack(side="left", padx=8)
+        self.undo_button = ttk.Button(toolbar, text="撤销", command=self.undo)
+        self.undo_button.pack(side="left", padx=(20, 0))
+        self.redo_button = ttk.Button(toolbar, text="重做", command=self.redo)
+        self.redo_button.pack(side="left", padx=8)
         ttk.Button(toolbar, text="导入 XLSX", command=self.import_xlsx).pack(side="left", padx=8)
         ttk.Button(toolbar, text="调换日期", command=self.swap_days).pack(side="left", padx=8)
         ttk.Button(toolbar, text="保存", command=self.save).pack(side="right")
@@ -407,7 +418,12 @@ class TimetableEditor(tk.Toplevel):
         selector = ttk.LabelFrame(self, text="显示日期（可不连续选择，最多 7 天）")
         selector.pack(fill="x", padx=16, pady=(0, 10))
         for index, name in enumerate(DAY_NAMES):
-            ttk.Checkbutton(selector, text=name, variable=self.day_vars[index], command=self.render).pack(side="left", padx=10, pady=6)
+            ttk.Checkbutton(
+                selector,
+                text=name,
+                variable=self.day_vars[index],
+                command=self.day_selection_changed,
+            ).pack(side="left", padx=10, pady=6)
 
     def selected_days(self):
         return [index for index, variable in enumerate(self.day_vars) if variable.get()]
