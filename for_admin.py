@@ -389,7 +389,7 @@ class TimetableEditor(tk.Toplevel):
             self.add_row(row)
         if not self.rows:
             self.add_row()
-        self.saved_state = self.current_state()
+        self.saved_state = deepcopy(self.current_state())
         self.history = [deepcopy(self.saved_state)]
         self.history_index = 0
         self._history_suspended = False
@@ -446,6 +446,7 @@ class TimetableEditor(tk.Toplevel):
                 combo = ttk.Combobox(self.grid_frame, values=self.courses, state="readonly", width=18)
                 combo.set(row["cells"].get(str(day), ""))
                 combo.grid(row=row_index, column=column, sticky="ew", padx=3, pady=3)
+                combo.bind("<<ComboboxSelected>>", self.record_history_event)
                 row["widgets"][day] = combo
         for column in range(len(days) + 1):
             self.grid_frame.columnconfigure(column, weight=1)
@@ -460,6 +461,8 @@ class TimetableEditor(tk.Toplevel):
             entry = ttk.Entry(parent, width=3, justify="center")
             entry.insert(0, value)
             entry.pack(side="left")
+            entry.bind("<KeyRelease>", self.record_history_event)
+            entry.bind("<FocusOut>", self.record_history_event)
             entries.append(entry)
             if index in (0, 2):
                 ttk.Label(parent, text=":").pack(side="left")
@@ -493,6 +496,7 @@ class TimetableEditor(tk.Toplevel):
 
     def add_period(self):
         self.add_row()
+        self.record_history()
 
     def remove_period(self):
         if len(self.rows) <= 1:
@@ -501,6 +505,11 @@ class TimetableEditor(tk.Toplevel):
         self.sync_widgets()
         self.rows.pop()
         self.render()
+        self.record_history()
+
+    def day_selection_changed(self):
+        self.render()
+        self.record_history()
 
     def swap_days(self):
         selected = choose_swap_days(self, "调换当前班级日期")
@@ -524,6 +533,7 @@ class TimetableEditor(tk.Toplevel):
                 "widgets": {},
             })
         self.render()
+        self.record_history()
         logger.info("当前班级调换日期（尚未保存）: %s <-> %s", DAY_NAMES[first_day], DAY_NAMES[second_day])
 
     def import_xlsx(self):
@@ -591,6 +601,7 @@ class TimetableEditor(tk.Toplevel):
                     "widgets": {},
                 })
             self.render()
+            self.record_history()
             logger.info("已导入 XLSX（尚未保存）: %s", file_path)
             messagebox.showinfo("导入成功", "课程表已导入当前编辑器，请检查后点击保存。", parent=self)
         except Exception as error:
@@ -606,7 +617,7 @@ class TimetableEditor(tk.Toplevel):
         try:
             timetable = {"days": self.selected_days(), "rows": self.collect_rows()}
             save_class(self.prefix, timetable, self.courses)
-            self.saved_state = self.current_state()
+            self.saved_state = deepcopy(self.current_state())
             messagebox.showinfo("保存成功", "课程表已保存到 data.zip。", parent=self)
             return True
         except OSError as error:
@@ -642,6 +653,67 @@ class TimetableEditor(tk.Toplevel):
             "courses": list(self.courses),
         }
 
+    def record_history_event(self, _event=None):
+        self.record_history()
+
+    def record_history(self):
+        if self._history_suspended:
+            return
+        state = deepcopy(self.current_state())
+        if state == self.history[self.history_index]:
+            return
+        self.history = self.history[: self.history_index + 1]
+        self.history.append(state)
+        self.history_index += 1
+        self.update_history_buttons()
+
+    def update_history_buttons(self):
+        if not hasattr(self, "undo_button"):
+            return
+        self.undo_button.state(["!disabled"] if self.history_index > 0 else ["disabled"])
+        self.redo_button.state(
+            ["!disabled"] if self.history_index < len(self.history) - 1 else ["disabled"]
+        )
+
+    def restore_state(self, state):
+        self._history_suspended = True
+        try:
+            for index, variable in enumerate(self.day_vars):
+                variable.set(index in state["days"])
+            self.rows = []
+            for data in state["rows"]:
+                self.rows.append({
+                    "start": tk.StringVar(value=data["start"]),
+                    "end": tk.StringVar(value=data["end"]),
+                    "cells": deepcopy(data["cells"]),
+                    "widgets": {},
+                })
+            self.courses = list(state["courses"])
+            if not self.rows:
+                self.add_row()
+            else:
+                self.render()
+        finally:
+            self._history_suspended = False
+
+    def undo(self, _event=None):
+        if self.history_index == 0:
+            return "break"
+        self.sync_widgets()
+        self.history_index -= 1
+        self.restore_state(deepcopy(self.history[self.history_index]))
+        self.update_history_buttons()
+        return "break"
+
+    def redo(self, _event=None):
+        if self.history_index >= len(self.history) - 1:
+            return "break"
+        self.sync_widgets()
+        self.history_index += 1
+        self.restore_state(deepcopy(self.history[self.history_index]))
+        self.update_history_buttons()
+        return "break"
+
     def close(self):
         if self.current_state() != self.saved_state:
             logger.info("因未保存而阻止关闭。")
@@ -672,6 +744,7 @@ class TimetableEditor(tk.Toplevel):
                 self.courses.append(course)
                 listbox.insert(tk.END, course)
                 self.render()
+                self.record_history()
 
         def remove():
             selection = listbox.curselection()
@@ -679,6 +752,7 @@ class TimetableEditor(tk.Toplevel):
                 self.courses.pop(selection[0])
                 listbox.delete(selection[0])
                 self.render()
+                self.record_history()
 
         buttons = ttk.Frame(dialog)
         buttons.pack(fill="x", padx=16, pady=(0, 16))
