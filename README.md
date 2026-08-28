@@ -220,6 +220,8 @@ python for_classroom_device.py
 
 ## 💬 联系与反馈
 
-提交 Issue：<https://github.com/lao2010/smart-course-system/issues>
+提交 Issue：
+<https://github.com/lao2010/smart-course-system/issues>
+
 ---
 <p align="center">如果这个项目帮到了你们班，欢迎点一个 ⭐ Star 支持开发！</p>
