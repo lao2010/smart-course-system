@@ -42,12 +42,13 @@ jobs:
         shell: pwsh
         run: >-
           uv run --no-sync python -m nuitka
-          --standalone
+          --onefile
           --assume-yes-for-downloads
           --enable-plugin=tk-inter
           --windows-console-mode=disable
           --output-dir=dist\admin
           --include-data-dir=data=data
+          --output-filename=for_admin.exe
           for_admin.py
 
       - name: Compile teacher sync service
@@ -57,7 +58,7 @@ jobs:
           --onefile
           --assume-yes-for-downloads
           --windows-console-mode=disable
-          --output-dir=dist\admin\for_admin.dist
+          --output-dir=dist\admin
           --include-data-dir=data=data
           --output-filename=main.exe
           main.py
@@ -66,12 +67,13 @@ jobs:
         shell: pwsh
         run: >-
           uv run --no-sync python -m nuitka
-          --standalone
+          --onefile
           --assume-yes-for-downloads
           --enable-plugin=tk-inter
           --windows-console-mode=disable
           --output-dir=dist\classroom
           --include-data-dir=data=data
+          --output-filename=for_classroom_device.exe
           for_classroom_device.py
 
       - name: Compile uninstaller
@@ -89,15 +91,15 @@ jobs:
       - name: Add uninstallers to application packages
         shell: pwsh
         run: |
-          Copy-Item dist\uninstaller\uninstall.exe dist\admin\for_admin.dist\uninstall.exe
-          Copy-Item dist\uninstaller\uninstall.exe dist\classroom\for_classroom_device.dist\uninstall.exe
+          Copy-Item dist\uninstaller\uninstall.exe dist\admin\uninstall.exe -Force
+          Copy-Item dist\uninstaller\uninstall.exe dist\classroom\uninstall.exe -Force
 
       - name: Create installer payload archives
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path payload | Out-Null
-          Compress-Archive -Path dist\admin\for_admin.dist\* -DestinationPath payload\admin.zip -CompressionLevel Optimal
-          Compress-Archive -Path dist\classroom\for_classroom_device.dist\* -DestinationPath payload\classroom.zip -CompressionLevel Optimal
+          Compress-Archive -Path dist\admin\* -DestinationPath payload\admin.zip -CompressionLevel Optimal
+          Compress-Archive -Path dist\classroom\* -DestinationPath payload\classroom.zip -CompressionLevel Optimal
           if ((Get-Item payload\admin.zip).Length -le 0 -or (Get-Item payload\classroom.zip).Length -le 0) { throw "Installer payload archive is empty" }
 
       - name: Compile installer
@@ -124,14 +126,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: smart-cr-admin
-          path: dist\admin\for_admin.dist
+          path: dist\admin\*
           if-no-files-found: error
 
       - name: Upload classroom artifact
         uses: actions/upload-artifact@v7
         with:
           name: smart-cr-classroom-device
-          path: dist\classroom\for_classroom_device.dist
+          path: dist\classroom\*
           if-no-files-found: error
 
       - name: Upload installer artifact
