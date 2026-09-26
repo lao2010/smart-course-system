@@ -217,7 +217,6 @@ python for_classroom_device.py
 ## 📄 许可证
 
 本项目基于 [MIT License](./LICENSE) 发布——允许任何人在保留版权声明的前提下自由使用、修改和分发（包括商用）。
-若未来希望限制闭源商用，可考虑迁移到 GPL-3.0 并提前告知现有使用者，选择参考 [choosealicense.com](https://choosealicense.com/)。
 
 ## 💬 联系与反馈
 
