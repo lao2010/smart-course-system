@@ -130,6 +130,9 @@ def main():
     global data_update_target_version
     global data_update_url
     logger.info("智能课程表同步程序启动")
+    if not friend_finder.ensure_secret_key():
+        logger.info("共享密钥配置已取消，同步服务未启动")
+        return
     discovery = None
     try:
         httpholder.main_thread.start()

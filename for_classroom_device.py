@@ -10,6 +10,7 @@ import gui
 import subprocess
 import sys
 import main as sync_program
+import friend_finder
 import threading
 import os
 import ctypes
@@ -32,17 +33,25 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
-if os.path.exists(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'config.json')):
-    config = json_operator.read_json(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'config.json'))
+config_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "config.json")
+if os.path.exists(config_path):
+    config = json_operator.read_json(config_path)
 else:
-    easygui.msgbox(f'欢迎使用本软件，即将引导配置这台设备，如需重新配置，请删除{os.path.join(os.path.abspath(os.path.dirname(__file__)), 'config.json')}', '配置向导')
-    config = {}
-    config['grade'] = easygui.integerbox('请输入设备所在的年级', '配置向导', lowerbound=1, upperbound=20)
-    config['class'] = easygui.integerbox('请输入设备所在的班级', '配置向导', lowerbound=1, upperbound=20)
-    config['device_name'] = easygui.enterbox('请输入设备名称，本名称仅用于显示，不会用于管理', '配置向导')
-    json_operator.write_json(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'config.json'), config)
+    easygui.msgbox(f"欢迎使用本软件，即将引导配置这台设备，如需重新配置，请删除{config_path}", "配置向导")
+    grade = easygui.integerbox("请输入设备所在的年级", "配置向导", lowerbound=1, upperbound=20)
+    if grade is None:
+        raise SystemExit(0)
+    class_number = easygui.integerbox("请输入设备所在的班级", "配置向导", lowerbound=1, upperbound=20)
+    if class_number is None:
+        raise SystemExit(0)
+    device_name = easygui.enterbox("请输入设备名称，本名称仅用于显示，不会用于管理", "配置向导")
+    if device_name is None:
+        raise SystemExit(0)
+    config = {"grade": grade, "class": class_number, "device_name": device_name}
+    if not json_operator.write_json(config_path, config):
+        raise OSError(f"无法写入设备配置：{config_path}")
     if easygui.ynbox('是否需要重新配置？', '配置向导'):
-        os.remove(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'config.json'))
+        os.remove(config_path)
         subprocess.Popen([python_path, os.path.abspath(__file__)])
         sys.exit(0)
 
@@ -104,6 +113,11 @@ def format_schedule(timetable):
 def main():
     global used_hours, used_minutes, used_weekday
 
+    logger.info("课堂设备程序已启动")
+    if not friend_finder.ensure_secret_key():
+        logger.info("共享密钥配置已取消，课堂设备程序未启动")
+        return
+
     sync_thread = threading.Thread(
         target=sync_program.main,
         daemon=True,
@@ -111,12 +125,11 @@ def main():
     )
     sync_thread.start()
 
-    used_time = -1
+    last_checked_minute = None
     schedule_available = None
     schedule_signature = None
     timetable = None
     next_schedule_refresh = 0.0
-    logger.info("课堂设备程序已启动")
     if "--no-start-msg" not in sys.argv:
         easygui.msgbox(title="提示", msg="程序已启动", ok_button="好的")
     try:
@@ -143,24 +156,19 @@ def main():
             if not timetable:
                 time.sleep(0.3)
                 continue
-            if minute_time == used_time:
+            if minute_time == last_checked_minute:
                 logger.debug("当前时间 %s %s:%02d 已处理过，无需再次检查", weekday, hour, minute)
                 time.sleep(60 - second)
                 continue
+            last_checked_minute = minute_time
             logger.debug("开始检查当前时间 %s %s:%02d 对应的课程", weekday, hour, minute)
             for i in timetable["rows"]: 
                 if i["cells"].get(str(weekday), None) is not None:
                     start_hour = int(str(i["start"]).split(":")[0])
                     start_minute = int(str(i["start"]).split(":")[1])
                     start_time = get_time(weekday, start_hour, start_minute)
-                    if start_time <= used_time:
-                        continue
-                    elif start_time == minute_time and used_time < start_time:
+                    if start_time == minute_time:
                         remind_course(i["cells"][str(weekday)], i["start"], i["end"])
-                        used_time = start_time
-
-                    else:
-                        used_time = start_time
             time.sleep(0.3)
     except KeyboardInterrupt:
         logger.info("课堂设备程序收到退出信号，正在关闭...")

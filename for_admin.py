@@ -212,10 +212,10 @@ def save_class(prefix, timetable, courses=None):
     archive_info["version"] = time.time()
     payloads = {
         f"{prefix}/timetable.json": json.dumps(timetable, ensure_ascii=False, indent=2).encode("utf-8"),
-        "data.json": json.dumps(archive_info, ensure_ascii=False, indent=2).encode("utf-8"),
     }
     if courses is not None:
         payloads["courses.json"] = json.dumps(courses, ensure_ascii=False, indent=2).encode("utf-8")
+    payloads["data.json"] = json.dumps(archive_info, ensure_ascii=False, indent=2).encode("utf-8")
     for path, content in payloads.items():
         if not zip_change_file(ARCHIVE_PATH, path, content):
             raise OSError(f"无法写入 {path}")

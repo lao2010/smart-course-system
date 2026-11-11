@@ -7,18 +7,104 @@ import socket
 import threading
 import time
 import logging
+import os
+import sys
+import tempfile
 
 
 logger = logging.getLogger("网络同类发现")
 
 # 认证核心：预共享密钥、HMAC 签名和时间戳防重放。
-SECRET_KEY = "2026_Secret:lkjinnhbgsdjcn123456789"  # 所有运行该程序的电脑必须使用相同密钥。
+SECRET_KEY_FILENAME = "secret.key"
+MIN_SECRET_KEY_LENGTH = 32
 DISCOVERY_PORT = 1981
+
+
+def _secret_key_path():
+    return os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), SECRET_KEY_FILENAME)
+
+
+def load_secret_key():
+    """读取本机保存的预共享密钥。"""
+    try:
+        with open(_secret_key_path(), "r", encoding="utf-8") as secret_file:
+            secret_key = secret_file.read().strip()
+    except FileNotFoundError as error:
+        raise FileNotFoundError(
+            f"未找到 {SECRET_KEY_FILENAME}，请在首次启动时配置共享密钥"
+        ) from error
+
+    if len(secret_key) < MIN_SECRET_KEY_LENGTH:
+        raise ValueError(f"{SECRET_KEY_FILENAME} 中的共享密钥至少需要 32 个字符")
+    return secret_key
+
+
+def save_secret_key(secret_key):
+    """以原子替换方式保存预共享密钥。"""
+    secret_key = secret_key.strip()
+    if len(secret_key) < MIN_SECRET_KEY_LENGTH:
+        raise ValueError("共享密钥至少需要 32 个字符")
+
+    secret_path = _secret_key_path()
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(secret_path),
+            prefix=".secret-key-",
+            delete=False,
+        ) as secret_file:
+            temporary_path = secret_file.name
+            secret_file.write(secret_key)
+            secret_file.write("\n")
+        os.replace(temporary_path, secret_path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None and os.path.exists(temporary_path):
+            os.remove(temporary_path)
+
+
+def ensure_secret_key():
+    """首次启动时提示录入共享密钥，取消时返回 False。"""
+    try:
+        load_secret_key()
+        return True
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as error:
+        logger.error("无法读取本机共享密钥：%s", error)
+        import easygui
+        easygui.msgbox(f"无法读取本机共享密钥：{error}", "配置通信密钥")
+        return False
+
+    import easygui
+
+    while True:
+        secret_key = easygui.passwordbox(
+            "请输入本校所有设备共用的随机共享密钥（至少 32 个字符）。\n"
+            "建议使用密码管理器生成，并在每台设备上输入完全相同的密钥。",
+            "配置通信密钥",
+        )
+        if secret_key is None:
+            return False
+        if len(secret_key.strip()) < MIN_SECRET_KEY_LENGTH:
+            easygui.msgbox("共享密钥至少需要 32 个字符。", "配置通信密钥")
+            continue
+        try:
+            save_secret_key(secret_key)
+            return True
+        except OSError as error:
+            logger.exception("保存本机共享密钥失败")
+            easygui.msgbox(f"保存本机共享密钥失败：{error}", "配置通信密钥")
+            return False
+
 
 def generate_token(timestamp):
     """生成 HMAC 签名"""
-    msg = f"{SECRET_KEY}:{timestamp}".encode("utf-8")
-    return hmac.new(SECRET_KEY.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+    secret_key = load_secret_key()
+    msg = f"{secret_key}:{timestamp}".encode("utf-8")
+    return hmac.new(secret_key.encode("utf-8"), msg, hashlib.sha256).hexdigest()
 
 def verify_token(timestamp, token):
     """验证 HMAC 签名"""
