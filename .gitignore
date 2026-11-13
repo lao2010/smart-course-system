@@ -47,3 +47,5 @@ Thumbs.db
 *.log
 log/
 logs/
+data/admin_device.id
+data/sync_port.txt

@@ -29,6 +29,23 @@ data_update_url = ""
 data_update_flag = False
 data_update_lock = threading.Lock()
 thread_sleep_flag = False
+# admin 角色下把 HTTP 端口写给管理端 GUI 进程（协作发现用），退出时清理。
+SYNC_PORT_FILENAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sync_port.txt")
+
+
+def write_sync_port_file(port_value):
+    os.makedirs(os.path.dirname(SYNC_PORT_FILENAME), exist_ok=True)
+    temporary_path = f"{SYNC_PORT_FILENAME}.tmp"
+    with open(temporary_path, "w", encoding="utf-8") as port_file:
+        port_file.write(str(port_value))
+    os.replace(temporary_path, SYNC_PORT_FILENAME)
+
+
+def remove_sync_port_file():
+    try:
+        os.remove(SYNC_PORT_FILENAME)
+    except FileNotFoundError:
+        pass
 
 
 def node_url(node: str, path: str) -> str:
@@ -130,6 +147,12 @@ def main():
     global data_update_target_version
     global data_update_url
     logger.info("智能课程表同步程序启动")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--role", choices=("classroom", "admin"), default="classroom")
+    options, _unknown_args = parser.parse_known_args()
+    # 仅管理端同步进程开放 /admin/save 协作写入；教室端一律 403。
+    httpholder.allow_admin_routes = options.role == "admin"
     if not friend_finder.ensure_secret_key():
         logger.info("共享密钥配置已取消，同步服务未启动")
         return
@@ -139,6 +162,8 @@ def main():
         if not httpholder.ready_event.wait(timeout=10):
             raise RuntimeError("HTTP 服务未能在规定时间内启动")
         port = httpholder.port
+        if httpholder.allow_admin_routes:
+            write_sync_port_file(port)
         discovery = friend_finder.FriendFinder(app_name="smart-cr", app_port=port)
         discovery.start()
         thread_sleep_flag = True
@@ -187,6 +212,7 @@ def main():
             worker_thread.join(timeout=6)
         if httpholder.main_thread.is_alive():
             httpholder.main_thread.join(timeout=6)
+        remove_sync_port_file()
         logger.info("我将用最简洁最不绕弯子最直白最一听就懂的大白话告诉你，所有线程已停止，程序退出")
         exit(0)
 
