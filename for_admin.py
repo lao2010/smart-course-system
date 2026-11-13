@@ -34,13 +34,17 @@ def _sync_targets():
 
 
 def _is_sync_running():
+    # 通过可执行文件路径或命令行参数判断同步程序是否已在运行。
     target_paths = {os.path.normcase(os.path.abspath(path)) for path in _sync_targets()}
     for process in psutil.process_iter(("exe", "cmdline")):
         try:
             executable = process.info.get("exe")
+            # 如果进程的可执行文件路径匹配目标程序，则同步程序正在运行。
             if executable and os.path.normcase(os.path.abspath(executable)) in target_paths:
                 return True
+            # 如果命令行参数中包含目标程序路径，也判定同步程序正在运行。
             for argument in process.info.get("cmdline") or []:
+                # 跳过非目标路径，继续检查其他命令行参数。
                 if os.path.normcase(os.path.abspath(argument)) in target_paths:
                     return True
         except (psutil.Error, OSError, ValueError):
