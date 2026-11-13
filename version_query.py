@@ -10,7 +10,13 @@ archive_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", 
 logger = logging.getLogger("版本查询")
 def get_version():
     try:
-        data = json.loads(zip_read(archive_path, "data.json").decode("utf-8"))
+        raw = zip_read(archive_path, "data.json")
+        if raw is None:
+            # data.zip 缺失/损坏（如新装机未首次同步）：返回哨兵负版本，
+            # 触发同步服务从节点下载——此前 None.decode 抛 AttributeError
+            # 落在捕获列表之外，导致新装机永远进不了版本比较（首次同步死锁）
+            return -1.114514
+        data = json.loads(raw.decode("utf-8"))
         return float(data.get("version", "1.1"))
     except (json.JSONDecodeError, TypeError, ValueError):
         return -1.114514

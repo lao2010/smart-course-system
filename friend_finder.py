@@ -18,6 +18,7 @@ logger = logging.getLogger("网络同类发现")
 SECRET_KEY_FILENAME = "secret.key"
 MIN_SECRET_KEY_LENGTH = 32
 DISCOVERY_PORT = 1981
+MAX_CLOCK_SKEW = 120   # 报文时间戳新鲜度窗口（秒）：容忍机房无 NTP 的时钟漂移
 
 
 def _secret_key_path():
@@ -108,8 +109,11 @@ def generate_token(timestamp):
 
 def verify_token(timestamp, token):
     """验证 HMAC 签名"""
-    # 只接受时间偏差不超过 10 秒的消息，避免旧消息被重复利用。
-    if abs(time.time() - timestamp) > 10:
+    # 时间新鲜度窗口放宽到 120 秒：机房设备不一定配 NTP，窗口太小会让
+    # 时钟漂移几十秒的机器互相拒绝（README 已同步部署要求）；签名按
+    # {密钥:时间戳} 全量计算，窗口内仅表示"报文新鲜"，配合可信内网
+    # 威胁模型足够，无需逐节点重放缓存（各节点同时刻签名值相同）。
+    if abs(time.time() - timestamp) > MAX_CLOCK_SKEW:
         return False
     expected_token = generate_token(timestamp)
     # 使用恒定时间比较，避免泄露签名内容的时间信息。
