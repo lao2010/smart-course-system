@@ -119,12 +119,27 @@ def verify_token(timestamp, token):
     # 使用恒定时间比较，避免泄露签名内容的时间信息。
     return hmac.compare_digest(expected_token, token)
 
+def local_ip():
+    """探测本机在局域网中的出口 IP（用于选主比较与自包过滤）。"""
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("8.8.8.8", 80))
+            return probe.getsockname()[0]
+        finally:
+            probe.close()
+    except OSError:
+        return "127.0.0.1"
+
+
 class FriendFinder:
-    def __init__(self, app_port, port=DISCOVERY_PORT, app_name="school_class", interval=10):
+    def __init__(self, app_port, port=DISCOVERY_PORT, app_name="school_class", interval=10, device_id=None):
         self.port = port
         self.app_name = app_name
         self.app_port = app_port
         self.interval = interval
+        # 稳定设备标识：跨重启不变，用于选主 tie-break（IP 可能随 DHCP 变化）。
+        self.device_id = device_id
         self.peers = {}
         self.lock = threading.Lock()
         self.running = False
@@ -150,23 +165,16 @@ class FriendFinder:
                 "app": self.app_name,
                 "app_port": self.app_port,
                 "hostname": socket.gethostname(),
-                "ip": self._get_local_ip(),
+                "ip": local_ip(),
                 "timestamp": curr_time,
-                "token": generate_token(curr_time)
+                "token": generate_token(curr_time),
+                "id": self.device_id
             }).encode("utf-8")
             self.send_sock.sendto(data, ("255.255.255.255", self.port))
             self.stop_event.wait(self.interval)
 
     def _get_local_ip(self):
-        try:
-            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                probe.connect(("8.8.8.8", 80))
-                return probe.getsockname()[0]
-            finally:
-                probe.close()
-        except OSError:
-            return "127.0.0.1"
+        return local_ip()
 
     def _listen(self):
         """监听广播消息（加入认证）"""
@@ -194,6 +202,7 @@ class FriendFinder:
                         "hostname": info["hostname"],
                         "ip": info["ip"],
                         "app_port": info.get("app_port", -1),
+                        "id": info.get("id"),
                         "last_seen": time.time()
                     }
                     logger.info("发现节点：%s (%s:%s)", info["hostname"], info["ip"], info.get("app_port", -1))
@@ -227,6 +236,16 @@ class FriendFinder:
         self.send_sock.close()
         for worker_thread in self.worker_threads:
             worker_thread.join(timeout=3)
+
+    def alive_peers(self, max_age=66):
+        """返回最近活跃的节点完整信息（含稳定 id），供选主与成员计数使用。"""
+        with self.lock:
+            now = time.time()
+            return [
+                {**peer, "key": key}
+                for key, peer in self.peers.items()
+                if now - peer["last_seen"] < max_age
+            ]
 
     def get_usable_list(self):
         """返回最近活跃的节点列表"""

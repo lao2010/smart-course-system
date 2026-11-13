@@ -46,3 +46,30 @@ def zip_change_file(zip, file_path, new_content):
             os.remove(temp_path)
         return False
     return True
+
+
+def zip_remove_prefix(zip, prefix):
+    """删除压缩包中所有以 prefix 开头的条目（如整个班级目录），原子替换。"""
+    if not prefix:
+        return False
+    temp_path = None
+    try:
+        with ZipFile(zip, 'r') as source:
+            with tempfile.NamedTemporaryFile(
+                dir=os.path.dirname(os.path.abspath(zip)),
+                suffix='.zip',
+                delete=False,
+            ) as temp:
+                temp_path = temp.name
+
+            with ZipFile(temp_path, 'w') as target:
+                for info in source.infolist():
+                    if not info.filename.startswith(prefix):
+                        target.writestr(info, source.read(info.filename))
+
+        os.replace(temp_path, zip)
+    except (FileNotFoundError, BadZipFile, OSError):
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False
+    return True

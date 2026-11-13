@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """课程表管理器入口。"""
 
+import base64
 import json
 from copy import deepcopy
 import logging
 import os
 import psutil
+import requests
 import subprocess
 import sys
 import time
@@ -14,8 +16,9 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from zipfile import ZipFile
 from datetime import datetime
 
-from zip_operator import zip_change_file
+from zip_operator import zip_change_file, zip_remove_prefix
 from get_course_from_xlsx import CourseScheduleParser
+import admin_coordination
 from logging_setup import configure_logging
 
 
@@ -112,6 +115,63 @@ def class_names():
     return load_json("classes.json", {})
 
 
+def admin_auth_headers():
+    """协作保存的 HMAC 认证头（与同步链路同一把预共享密钥）。"""
+    import friend_finder as friend_finder_module
+    timestamp = time.time()
+    return {
+        "X-Auth-Timestamp": str(timestamp),
+        "X-Auth-Token": friend_finder_module.generate_token(timestamp),
+    }
+
+
+def _bump_version_payload():
+    """生成携带新版本号的 data.json 内容（必须最后落盘）。"""
+    archive_info = load_json("data.json", {})
+    if not isinstance(archive_info, dict):
+        archive_info = {}
+    archive_info["version"] = time.time()
+    return json.dumps(archive_info, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def _apply_files_locally(files, delete_prefixes):
+    """主持人 / 独立模式本机落盘：删前缀 → 写文件 → 最后升版本。"""
+    ensure_archive()
+    for prefix in delete_prefixes:
+        if not zip_remove_prefix(ARCHIVE_PATH, prefix):
+            raise OSError(f"无法从档案删除 {prefix}")
+    for path, content in files.items():
+        if not zip_change_file(ARCHIVE_PATH, path, content):
+            raise OSError(f"无法写入 {path}")
+    if not zip_change_file(ARCHIVE_PATH, "data.json", _bump_version_payload()):
+        raise OSError("无法写入 data.json")
+
+
+def admin_save(files, delete_prefixes=()):
+    """统一保存出口：主持人/独立模式本机落盘，成员转发主持人统一落盘。
+
+    返回给 UI 的提示文案；失败抛异常，由各入口按原方式弹窗。
+    """
+    coordinator = admin_coordination.get_coordinator()
+    if coordinator is None:
+        _apply_files_locally(files, delete_prefixes)
+        return "已保存（协作未启用）"
+    try:
+        return coordinator.submit(files, delete_prefixes)
+    except RuntimeError as error:
+        # 主持人可能恰好下线：重评角色，若本机已升为主持人则本机落盘兜底
+        coordinator.refresh()
+        state = coordinator.state(max_age_seconds=0)
+        if state["am_host"]:
+            _apply_files_locally(files, delete_prefixes)
+            return "主持人失联，本机已接管为主持人并完成保存"
+        raise
+
+
+def class_names():
+    return load_json("classes.json", {})
+
+
 def load_json(path, default):
     ensure_archive()
     with ZipFile(ARCHIVE_PATH) as archive:
@@ -193,57 +253,30 @@ def swap_all_classes(first_day, second_day):
         if isinstance(timetable, dict):
             changed.append((prefix, swap_timetable_days(timetable, first_day, second_day)))
 
-    archive_info = load_json("data.json", {})
-    if not isinstance(archive_info, dict):
-        archive_info = {}
-    archive_info["version"] = time.time()
-    payloads = {
+    files = {
         f"{prefix}/timetable.json": json.dumps(timetable, ensure_ascii=False, indent=2).encode("utf-8")
         for prefix, timetable in changed
     }
-    payloads["data.json"] = json.dumps(archive_info, ensure_ascii=False, indent=2).encode("utf-8")
-    for path, content in payloads.items():
-        if not zip_change_file(ARCHIVE_PATH, path, content):
-            raise OSError(f"无法写入 {path}")
+    admin_save(files)
     return len(changed)
 
 
 def save_class(prefix, timetable, courses=None):
-    ensure_archive()
-    archive_info = load_json("data.json", {})
-    if not isinstance(archive_info, dict):
-        archive_info = {}
-    archive_info["version"] = time.time()
-    payloads = {
+    files = {
         f"{prefix}/timetable.json": json.dumps(timetable, ensure_ascii=False, indent=2).encode("utf-8"),
     }
     if courses is not None:
-        payloads["courses.json"] = json.dumps(courses, ensure_ascii=False, indent=2).encode("utf-8")
-    payloads["data.json"] = json.dumps(archive_info, ensure_ascii=False, indent=2).encode("utf-8")
-    for path, content in payloads.items():
-        if not zip_change_file(ARCHIVE_PATH, path, content):
-            raise OSError(f"无法写入 {path}")
+        files["courses.json"] = json.dumps(courses, ensure_ascii=False, indent=2).encode("utf-8")
+    admin_save(files)
 
 
 def save_class_names(names):
-    content = json.dumps(names, ensure_ascii=False, indent=2).encode("utf-8")
-    if not zip_change_file(ARCHIVE_PATH, "classes.json", content):
-        raise OSError("无法写入 classes.json")
+    admin_save({"classes.json": json.dumps(names, ensure_ascii=False, indent=2).encode("utf-8")})
 
 
 def delete_class(prefix):
-    """删除班级目录，复用 ZIP 操作器完成每个文件的替换流程。"""
-    names = [name for name in read_archive_names() if not name.startswith(prefix + "/")]
-    temporary = ARCHIVE_PATH + ".tmp"
-    try:
-        with ZipFile(ARCHIVE_PATH) as source, ZipFile(temporary, "w") as target:
-            for info in source.infolist():
-                if info.filename in names:
-                    target.writestr(info, source.read(info.filename))
-        os.replace(temporary, ARCHIVE_PATH)
-    finally:
-        if os.path.exists(temporary):
-            os.remove(temporary)
+    """删除班级目录：交由统一保存出口（主持人本机或成员转发）。"""
+    admin_save({}, delete_prefixes=(prefix + "/",))
 
 
 class ClassManager(tk.Toplevel):
@@ -258,6 +291,10 @@ class ClassManager(tk.Toplevel):
         ttk.Label(self, text="选择要编辑的班级", font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 10))
         search_frame = ttk.Frame(self)
         search_frame.pack(fill="x", padx=24, pady=(0, 10))
+        # 管理员协作状态条：独立模式 / 主持人 / 成员
+        self.admin_status = ttk.Label(self, text=admin_coordination.coordinator_status(), foreground="#666666")
+        self.admin_status.pack(side="bottom", fill="x", pady=(0, 8))
+        self.after(2000, self.refresh_admin_status)
         self.grade_search = tk.StringVar()
         self.class_search = tk.StringVar()
         ttk.Label(search_frame, text="年级").pack(side="left")
@@ -280,6 +317,10 @@ class ClassManager(tk.Toplevel):
         ttk.Button(buttons, text="全系统调换日期", command=self.swap_all_days).pack(side="left")
         ttk.Button(buttons, text="打开", command=self.select).pack(side="right")
         self.refresh()
+
+    def refresh_admin_status(self):
+        self.admin_status.config(text=admin_coordination.coordinator_status())
+        self.after(2000, self.refresh_admin_status)
 
     def refresh(self):
         self.listbox.delete(0, tk.END)
@@ -772,6 +813,7 @@ def start_editor(manager, prefix):
 
 def main():
     ensure_sync_process()
+    admin_coordination.start_coordinator()
     root = tk.Tk()
     root.withdraw()
 
