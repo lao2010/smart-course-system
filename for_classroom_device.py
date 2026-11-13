@@ -82,7 +82,7 @@ def read_schedule():
         return None
 
 def show_course_details(name, start_time, end_time):
-    easygui.msgbox(title="课程详情", msg=f"这节课是{name}，开始时间{start_time},结束时间{end_time}", ok_button="我已知晓这节课为{name}课")
+    easygui.msgbox(title="课程详情", msg=f"这节课是{name}，开始时间{start_time},结束时间{end_time}", ok_button=f"我已知晓这节课为{name}课")
 
 def remind_course(name, start_time, end_time):
     gui.show_reminder(
